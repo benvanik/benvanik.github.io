@@ -1,1 +1,16 @@
-hello world
+<!DOCTYPE html>
+<html>
+  <head>
+    <script src="src/github.js"></script>
+  </head>
+  <body>
+    <script>
+      github.queryRepository('benvanik', 'xenia', function(error, result) {
+        console.log(result);
+      });
+      github.listCommits('benvanik', 'xenia', function(error, result) {
+        console.log(result);
+      });
+    </script>
+  </body>
+</html>
