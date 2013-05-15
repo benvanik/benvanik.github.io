@@ -25,7 +25,8 @@ host:           0.0.0.0
 port:           4000
 baseurl:        /
 url:            http://localhost:4000
-lsi:            true
+lsi:            false
+#lsi:            true
 
 title:          noxa.org
 production_url: http://noxa.org
