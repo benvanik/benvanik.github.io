@@ -1,37 +1,55 @@
-source:      .
-destination: ./_site
-plugins:     ./_plugins
-layouts:     ./_layouts
-include:     ['.htaccess']
-exclude:     ['setup.sh', 'publish.sh', 'README.md', 'node_modules']
-keep_files:  ['.git', '.svn']
-timezone:    America/Los_Angeles
+source:         .
+destination:    ./_site
+plugins:        ./_plugins
+layouts:        ./_layouts
+include:        ['.htaccess']
+exclude:        ['setup.sh', 'publish.sh', 'README.md', 'node_modules']
+keep_files:     ['.git', '.svn']
+timezone:       America/Los_Angeles
 
-future:      true
-show_drafts: nil
-limit_posts: 0
-pygments:    true
+future:         true
+show_drafts:    nil
+limit_posts:    0
+pygments:       true
 
 relative_permalinks: true
 
-permalink:     date
-paginate_path: 'page:num'
+permalink:      /:categories/:year/:month/:day/:title/
+paginate_path:  'page:num'
 
-safe:        false
-host:        0.0.0.0
-port:        4000
-baseurl:     /
-url:         http://localhost:4000
-lsi:         true
+atom_path:      /atom.xml
+rss_path:       /rss.xml
+
+safe:           false
+host:           0.0.0.0
+port:           4000
+baseurl:        /
+url:            http://localhost:4000
+lsi:            true
+
+title:          noxa.org
+production_url: http://noxa.org
+
+author:
+  name:         Ben Vanik
+  email:        ben.vanik@gmail.com
+  github:       benvanik
+  twitter:      benvanik
+  # TODO(benvanik): get a feedburner name?
+  #feedburner: feedname
+
+disqus_name:    benvanik
+google_analytics:
+  tracker_id:   'UA-541992-11'
 
 asset_bundler:
   compress:
-    js: yui
-    css: yui
-  base_path: /bundles/
+    js:         yui
+    css:        yui
+  base_path:    /bundles/
   server_url:
   remove_bundled: false
-  dev: false
+  dev:          false
   markup_templates:
-    js: "<script src='{{url}}'></script>\n"
-    css: "<link rel='stylesheet' href='{{url}}'/>\n"
+    js:         "<script src='{{url}}'></script>\n"
+    css:        "<link rel='stylesheet' href='{{url}}'/>\n"

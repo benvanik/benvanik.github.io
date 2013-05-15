@@ -1,6 +1,25 @@
 ---
-title: noxa.org -- benvanik
-layout: default
+title: noxa.org -- Ben Vanik
+layout: nil
 category: homepage
 ---
+{% include header.html %}
+
 Hello!
+
+pages:
+{% for page in site.pages %}
+{{ site.production_url }}{{ page.url }}<br/>
+{% endfor %}
+
+blog:
+{% for post in site.categories.blog %}
+{{ site.production_url }}{{ post.url }}<br/>
+{% endfor %}
+
+projects:
+{% for project in site.categories.projects %}
+{{ site.production_url }}{{ project.url }}<br/>
+{% endfor %}
+
+{% include footer.html %}
