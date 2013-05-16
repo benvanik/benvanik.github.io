@@ -50,3 +50,13 @@ body > .navbar .brand:hover {
 .footer-links li:first-child {
   padding-left: 0;
 }
+
+
+/* ---- emoji ---- */
+
+.emoji {
+  width: 22px;
+  height: 22px;
+  vertical-align: bottom;
+  position: relative;
+}

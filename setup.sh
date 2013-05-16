@@ -1,7 +1,7 @@
 #!/bin/bash
 
 sudo gem update --system
-sudo gem install jekyll gsl closure less
+sudo gem install jekyll gsl closure less gemoji
 
 sudo npm install -g yuicompressor
 
