@@ -13,9 +13,9 @@ title : noxa.org posts
     <pubDate>{{ site.time | date_to_xmlschema }}</pubDate>
     <ttl>1800</ttl>
 
-{% for post in site.posts %}
+{% for post in site.categories.posts %}
     <item>
-      <title>{{ post.title }}</title>
+      <title>{{ post.title | xml_escape }}</title>
       <description>{{ post.content | xml_escape }}</description>
       <link>{{ site.production_url }}{{ post.url }}</link>
       <guid>{{ site.production_url }}{{ post.id }}</guid>

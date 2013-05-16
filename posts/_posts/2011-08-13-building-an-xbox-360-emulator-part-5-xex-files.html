@@ -1,10 +1,10 @@
---- 
-tags: 
+---
+tags:
 - Coding
 - Emulation
 - Xbox 360
 - Xenia
-meta: 
+meta:
   _edit_last: "2"
 title: "Building an Xbox 360 Emulator, part 5: XEX Files"
 type: post
@@ -166,7 +166,7 @@ IDA and xorloser's XEX importer are nice enough to organize most things for you.
 I'm not going to do a full walkthrough of IDA (you either know already or can find it pretty easily), but I will show an example that reveals a bit about what the executables look like and how they function. It's fun to see how much you can glean about the tools and processes used to build the executable from the output!
 <h3>Reversing Sleep</h3>
 Starting simple and in a well-known space is generally a good idea. Scanning through the import thunks in my executable I noticed 'KeDelayExecutionThread'. That's an interesting function because it is fairly simple - the perfect place to get a grounding. Almost every game should call this, so look for it in yours (your addresses will differ).
-<pre>.text:826BF9B4 KeDelayExecutionThread:                 # CODE XREF: sub_826B9AF8+5Cp
+<pre>.text:826BF9B4 KeDelayExecutionThread:                 # CODE XREF: sub_826B9AF8+5Cp
 .text:826BF9B4                 li      %r3, 0x5A
 .text:826BF9B8                 li      %r4, 0x5A
 .text:826BF9BC                 mtspr   CTR, %r11
