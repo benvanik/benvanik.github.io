@@ -1,7 +1,10 @@
 ---
-title: noxa.org -- projects
+title: projects
 
 layout: default
 ---
 
 Project list
+{% for project in site.categories.projects %}
+{{ project.url }}<br/>
+{% endfor %}

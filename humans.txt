@@ -1,0 +1,44 @@
+  Ben Vanik
+  Site: http://noxa.org
+  Twitter: @benvanik
+  Location: Seattle, WA, USA
+
+  Standards: HTML5, CSS3, Canvas, WebGL, WebSockets
+  Components: Modernizr, Closure
+
+
+
+                       .+jj:        ..:..
+                   .6H6+:++jMMMMMbj+:+jjj6b6bbj:.
+              .jHbjjj6bMHHbbbbbbbbHHHMMMMMMbj+++jbbbbbbj66+.
+            .H6j6bHb6bMMMMMMMMbj:          +6HMHMMHHH66b6j6jb6bj:
+           +H6HbHMMMMMMMMMj.    j6jjjj:   .+        +6HMMMHbHHbj+6bj
+           6bbbMMMMMMMM6                       bMHb:     +HMMMMHbH6+6b
+          +b6bHMMMMMM+           .jHMMb+..MH:Hb:    .jb:    :HMMMMHHbbb.
+         .H66bMMMMM:          :Hb6b6j+jj+j+:j6b6bMH6+   +b+    :MMMMbbbb
+         j6bH6MMM6          jHb6j+bHMMMMMMMMM6++bb6bbHbj   +6.   .HMMH6jb.
+        .bbH6HMMj          bb6jHMMMMMMMMMMMMMMMMMHb6666bb+    j:   jMHH6jb:
+        :Mbb+MMH          Hb66MMMMMMMMbjbHHHMMMMMMMHHH6+jbbj   :b   :MMHb+bj
+        :MMbjMMj         bb6bMMMMMMH6MH+            +MHMH++bb6j  6.  +MMbbjb+
+        :MbbjMMj        Hbj6MMMMMM6Mb                 +MbMH:jbHj  b   jMMHHjb+
+         HbHjMMj       jb6jMMMMMbjM:                    bHMH:jbM6  j   6MMbbjb.
+         6HHbMM+       bH6bMMMMbbM      :bb6jbbj+b6      HbMb:6HM:      bMHbj6b
+         jb6HHMj       6MbbMMM6jH     :MbjbHHb66bHjj     bHHM++HMb       bMb66H.
+         :HjHbMb       .HbjMMMjM:    +b6bH6       bj:  MjHjHM6bbMj       :MbbjM+
+         .H6bbMM+       bHbbMH6M    .+bM6.        jM:  Hbb:MH6bHb         HbHjH6
+          6HbbMMH.       HHbMbbM.   jHbH   j+    jbM: bjMj6H6bHb          bbH6bb
+          :HbbMMMj       +MbbHMb.   jMb6   :HMHH6bj .jjM66MjbHH           bbbb6b
+           HbbbMMH        bbjHMj    :MMb+            6MjbbjbHb           :Mb6H66
+           jHb6HMMj        HjjH6     ::Hb6b+jj+bH6bHb6b66HHb:            bMbjM6b
+           .M6bbMMH.       +H+6b:       :bb6j6bMMMHbbbHHb+              bMMH+HbH
+            :HjbbMM+        jHjbb.         .+jjjjjj+:.                .HMMMb6bbb.
+             +M6bbMb         bbjbb.                                  bMMMMMj66Hj
+              .bHjbH+        .Hb6bb+                               +MMMMMMjj6H6
+                .H6jb+        .Hb+6bb+                           .HMMMMMM6b6Hb
+                  jHjb+         :HHjjbbbj.                     :HMMMMMMH+b6Hb
+                   .Hbbb           +HM6jj6b6jj:       +Mb. .jHMMMMMMMM+6jHM:
+                     +Mbj              +bHMbbb6j6bMMMMMMMMMMMMMMMMMMjj6bMj
+                       ++                   .6HMMMH+..+6HMMMMMMMMb+j6bHb
+                                                 .6HHMMMMHbjjjbbbj6HH6
+                                                       +HMbbbbHHbHH:
+                                                         :jjjjjjj

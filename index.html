@@ -1,25 +1,6 @@
 ---
-title: Home
-layout: nil
+title: home
+layout: default
 category: homepage
 ---
-{% include header.html %}
-
 Hello!
-
-pages:
-{% for page in site.pages %}
-{{ page.url }}<br/>
-{% endfor %}
-
-blog:
-{% for post in site.categories.blog %}
-<a href="{{ post.url }}">{{ post.title }}</a><br/>
-{% endfor %}
-
-projects:
-{% for project in site.categories.projects %}
-{{ project.url }}<br/>
-{% endfor %}
-
-{% include footer.html %}
