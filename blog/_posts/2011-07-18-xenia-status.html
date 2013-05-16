@@ -1,0 +1,22 @@
+--- 
+tags: 
+- Emulation
+- Xbox 360
+- Xenia
+meta: 
+  _edit_last: "2"
+title: Xenia Status
+type: post
+status: publish
+published: true
+layout: post
+---
+Unfortunately I've been insanely busy at my new job the past few months and been unable to do much work on my Xbox 360 emulator. I'd like to try that whole 'work-life balance' thing, though, and am going to try to focus my energy on it a bit more.
+
+I've got a (currently private) github repo setup with quite a bit of code for loading XEX's from GDFS images, and have started getting things together for building the recompiler. Before I open up the repository though I'd like to get things compiling under Xcode, and that's proven to be much more difficult than I had hoped.
+
+The biggest problem (besides all the random differences between GCC/LLVM and VC++) is that the __ptr32 attribute I was relying on in VC++ to force pointer types to be treated as 32-bits in 64-bit builds does not have an equivalent under GCC. With __ptr32, the special 4-byte pointers can be dereferenced just like the normal native 8-byte pointers, with all of the casting handled at compile-time. Without it, code becomes significantly more convoluted and uglier.
+
+I'm still trying to find a more elegant solution than passing around uint32's instead of actual pointer types, but until I do I'm holding on opening things up.
+
+No promises on when this will get resolved, as history has shown I am absolutely horrible with keeping self-defined deadlines. But Real Soon Now!

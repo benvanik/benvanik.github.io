@@ -1,0 +1,218 @@
+---
+tags:
+- Emulation
+- Xbox 360
+- Xenia
+title: "Building an Xbox 360 Emulator, part 6: Code Translation Techniques"
+type: post
+status: publish
+published: true
+layout: post
+---
+One of the most important pieces of an emulator is the simulation of the guest processor - it drives every other subsystem and is often the performance bottleneck. I'm going to spend a few posts looking into how to build a (hopefully) fast and portable PowerPC simulator.
+<h2>Overview</h2>
+At the highest level the emulator needs to be able to take the original PowerPC instructions and run them on the host processor. These instructions come in the form of a giant assembled binary instruction stream loaded into memory - there is no concept of 'functions' or 'types' and no flow control information. Somehow, they must be quickly translated into a form the host processor can understand, either one at a time or in batches. There are many techniques for doing this, some easy (and slow) and many hard (and fastish). I've learned through experience that  that the first choice one makes is almost always the wrong one and a lot of iteration is required to get the right balance.
+
+The techniques for doing this translation parallel the techniques used for systems programming. There's usually a component that looks like an optimizing compiler, a linker, some sort of module format (even if just in-memory), and an <a href="http://en.wikipedia.org/wiki/Application_binary_interface" target="_blank">ABI</a> (application binary interface - a.k.a. calling convention). The tricky part is not figuring out how these components fit together but instead deciding how much effort to put into each one to get the right performance/compatibility trade off.
+
+I recommend checking out <a href="http://amzn.com/1558609105" target="_blank">Virtual Machines</a> by James Smith and Ravi Nair for a much more in-depth overview of the field of machine emulation, but I'll briefly discuss the major types used in console emulators below.
+<h3>Interpreters</h3>
+<table width="250">
+<tbody>
+<tr>
+<td style="text-align: right;" width="90">Implementation:</td>
+<td><span style="color: #008000;">Easy</span></td>
+</tr>
+<tr>
+<td style="text-align: right;">Speed:</td>
+<td><span style="color: #ff0000;">Slow</span></td>
+</tr>
+<tr>
+<td style="text-align: right;">Examples:</td>
+<td>BASIC, most older emulators</td>
+</tr>
+</tbody>
+</table>
+Interpreters are the simplest of the bunch. They are basically exactly what you would build if you coded up the algorithm describing how a processor works. Typically, they look like this:
+<ul>
+	<li>While running:
+<ul>
+	<li>Get the next instruction from the stream</li>
+	<li>Decode the instruction</li>
+	<li>Execute the instruction (maybe updating the address of the next instruction to execute)</li>
+</ul>
+</li>
+</ul>
+There are bits that make this a bit more complex than this, but generally they are implementation details about the guest CPU (how does it handle jumping around, etc). Ignoring the code that actually executes each instruction, a typical interpreter can be just a few dozen lines of easy-to-read, easy-to-maintain code. That's why when performance doesn't matter you see people go with interpreters - no one wants to waste time building insanely complex systems when a simple one will work (or at least, they shouldn't!).
+
+Even when an interpreter isn't fast enough to run the guest code at sufficient speeds there are still many advantages to use one. Mainly, due to the simplicity of the implementation, it's often possible to ensure correctness without much trouble. A lot of emulation projects start of with interpreters just to ensure all the pieces are working and then later go back and add a more complex CPU core when things are all verified correct. Another great advantage is that it's much easier to build debuggers and other analysis tools, as things like stepping and register inspection can be one or two lines in the main execution loop.
+
+Unfortunately for this project, performance does matter and an interpreter will not suffice. I would like to build one just to make it easier to verify the correctness of the instruction set, however even with as (relatively) simple it is there is still a large time investment that may never pay off.
+<h4>Pros</h4>
+<ul>
+	<li>Easy to implement</li>
+	<li>Easy to build debuggers/step-through</li>
+	<li>Can get something running fairly fast</li>
+	<li>Snapshotting/save states trivial to implement</li>
+</ul>
+<h4>Cons</h4>
+<ul>
+	<li>Several orders of magnitude slower than the host machine (think 100-1000x)</li>
+</ul>
+<h3>JITs</h3>
+<table width="250">
+<tbody>
+<tr>
+<td style="text-align: right;" width="90">Implementation:</td>
+<td><span style="color: #008000;">Sort-of easy</span></td>
+</tr>
+<tr>
+<td style="text-align: right;">Speed:</td>
+<td><span style="color: #ff0000;">Sort-of fast</span></td>
+</tr>
+<tr>
+<td style="text-align: right;">Examples:</td>
+<td>Modern Javascript, .NET/JVM, most emulators</td>
+</tr>
+</tbody>
+</table>
+This technique is the most common one used in emulators today. It's much more complex than an interpreter but still relatively easy to get implemented. At a high level the flow is the same as in an interpreter, but instead of operating on single instructions the algorithm handles <a href="http://en.wikipedia.org/wiki/Basic_block">basic blocks</a>, or a short sequence of instructions excluding flow control (jumps and branches).
+<ul>
+	<li>While running:
+<ul>
+	<li>Get the next address to process</li>
+	<li>Lookup the address in the code cache</li>
+	<li>If cached basic block present:
+<ul>
+	<li>Execute cached block</li>
+</ul>
+</li>
+	<li>Otherwise:
+<ul>
+	<li>Translate the basic block</li>
+	<li>Store in code cache</li>
+	<li>Execute block</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+The emulator spins in this loop and in the steady state is doing very little other than lookups in the cache and calls of the cached code. Each basic block runs until the end and then returns back to this control method to let it decide where to go next.
+
+There is a bit of optimization that can be done here, but because the unit of work is a basic block a lot don't make sense or can't be used to full advantage. The best optimizations often require much more context than a couple instructions in isolation can give and the most expensive code is usually the stuff in-between the basic blocks, not inside of it (jumps/branches/etc).
+
+Compared to the next technique this simple JIT does have a few advantages. Namely, if the guest system is allowed to dynamically modify code (think of a guest running a guest) this technique will get the best performance with as little penalty for regeneration as possible. On the Xbox 360, however, it is impossible to dynamically generate code so that's a whole big area that can be ignored.
+
+In terms of the price/performance ratio, this is the way to go. The analysis is about as simple as the interpreter, the translation is straightforward, and the code is still pretty easy to debug. There's a performance penalty (that can often be eliminated with tricks) for the cache lookups and dynamic translation, but it's still much faster than interpreting.
+
+That said, it's still not fast enough. To emulate 3 3GHz processors with an advanced instruction set on x86-64, every single cycle needs to count. It's also boring - I've built a few before, and building another would just be going through the motions.
+
+<span style="font-weight: bold;">Pros</span>
+<ul>
+	<li>Pretty fast (10-100x slower than native)</li>
+	<li>Pretty simple</li>
+	<li>Allows for recompilation if code is changed on-the-fly</li>
+</ul>
+<h4>Cons</h4>
+<ul>
+	<li>Few optimizations possible</li>
+	<li>Debugging is harder</li>
+</ul>
+<h3>Recompilers / 'Advanced' JITs</h3>
+<table width="250">
+<tbody>
+<tr>
+<td style="text-align: right;" width="90">Implementation:</td>
+<td><span style="color: #ff0000;">Hard</span></td>
+</tr>
+<tr>
+<td style="text-align: right;">Speed:</td>
+<td><span style="color: #008000;">Fastest possible</span></td>
+</tr>
+<tr>
+<td style="text-align: right;">Examples:</td>
+<td>V8, .NET ngen/AOT</td>
+</tr>
+</tbody>
+</table>
+Recompilers (often referred to as 'binary translation' in literature) are the holy grail of emulation. The advantages one gets from being able to do full program analysis, ahead-of-time compilation, and trivially debuggable code cannot be beat... except by how hard they usually are to write.
+
+Where as an interpreter works on individual instructions and a simple JIT works on basic blocks, a recompiler works on methods or even entire programs. This allows for complex optimizations to be used that, knowing the target host architecture, can yield even faster code than the original instruction stream.
+
+I split this section between 'advanced' JITs and recompilers, but they are really two different things implemented in largely the same way. An advanced JIT (as I call it) is a simple JIT extended to work on methods and using some simple intermediate representation (IR) that allows for optimizations, but at the end of the day is still dynamically compiling code at runtime on demand. A full recompiler is usually a system that does a lot of the same analysis and uses a similar intermediate representation, but does it all at once and before attempting to execute the code. In some ways a JIT is easier to think about (still operating on small units of code, still doing it inside the program flow), but in many others the recompiler simplifies things. For example, being able to verify an entire program is correct and optimize as much as possible before the guest executes allows for much better tooling to be created. Depending on what library/tools are being used you can also get reflection, debugging, and things usually reserved for original source-level programming like profile-guided optimization.
+
+The hard part of this technique is actually analyzing the instruction stream to try to figure out how the code is organized. Tools like <a href="http://www.hex-rays.com/idapro/">IDA Pro</a> will do this to a point, but are not meant to be used to generate executable code. How this process is normally done is largely undocumented - either because it's considered a trade secret or no one cares - but I puzzled out some of the tricks and used them to build my PSP emulator. There I implemented an advanced JIT, generating code on the fly, but that's only because of the tools that I had at the time and not really knowing what I wanted.
+
+Recompilers are very close to full-on decompilers. Decompilers are designed to take machine instructions up through various representations and (hopefully) yield human-readable high level source code. They are constructed like a compiler but in reverse: compilers usually contain a frontend (input source code -&gt; intermediate representation (IR)), optimizers/analyzers, and a backend (IR -&gt; machine code (MC)); decompilers have a frontend (MC -&gt; IR), optimizers/analyzers, and a backend (IR -&gt; source, like C). The decompiler frontend is fairly trivial, the analysis much more complex, and the backend potentially unsolvable. What makes recompilers interesting is that at no point do they aim to high human-readable output - instead, a recompiler has a frontend like a decompiler (MC -&gt; IR), analyzers like a decompiler, optimizers like a compiler, and a backend like a compiler (IR -&gt; MC).
+<h4>Pros</h4>
+<ul>
+	<li>As close to native as possible (1-10x slower, depending on architectures)</li>
+	<li>No translation overhead while running (unless desired)</li>
+	<li>Debuggable using real tools</li>
+	<li>Still pretty novel (read: fun!)</li>
+</ul>
+<h4>Cons</h4>
+<ul>
+	<li>Incredibly hard to write</li>
+	<li>Can't handle dynamically modifiable code (well)</li>
+</ul>
+<h2>Building a Recompiler</h2>
+There are many steps down the path of building a recompiler. Some people have tried building general purpose binary translation toolkits, but that's a lot of work and requires a lot of good design and abstraction. For this project I just want to get something working and I have learned that after I'm done I will never want to use the code again - by the time I attempt a project like this again, I will have learned enough to consider it all garbage ;) I'll be focusing on a Power PC frontend and reusing the PPC instruction set (+ tags) as my intermediate representation (IR) - this simplifies a lot of things and allows me to bake assumptions about the source platform into the entire stack without a lot of nasty hacks. One design concession I will be making is letting the backend (IR -&gt; MC) be pluggable. From experience, the frontend rarely changes between different implementations while the backend varies highly - source PPC instructions are source PPC instructions regardless of whether you're implementing an interpreter, a JIT, or a recompiler. For now I'm planning on using <a href="http://llvm.org/" target="_blank">LLVM</a> for the backend (as it also gives me some nice optimizers), but may re-evaluate this later on and would like not to have to reimplement the frontend.
+<h3>Frontend (MC -&gt; IR)</h3>
+Assuming that the source module has already been loaded (see previous posts on loading XEX files), the frontend stage includes a few major components:
+<ul>
+	<li>Disassembler</li>
+	<li><a href="http://en.wikipedia.org/wiki/Basic_block" target="_blank">Basic block</a> slicing</li>
+	<li><a href="http://en.wikipedia.org/wiki/Control_flow_graph" target="_blank">Control Flow Graph</a> (CFG) construction</li>
+	<li>Method recognition</li>
+</ul>
+<div>From this stage a skeleton of the program can be generated that should fairly closely model the original structure of the code. This includes a (mostly correct) list of methods, tagged references to global variables, and enough information to identify the control flow in any given method.</div>
+When working on my PSP emulator I didn't factor out the frontend correctly and ended up having to reimplement it several times. For this project I'll be constructing this piece myself and ensuring that it is reusable, which will hopefully save a lot of time when experimenting with different backends.
+<h4>Disassembler</h4>
+A simple run-of-the-mill disassembler that is able to take a byte stream and produce an instruction stream. There are a few table generation toolkits out there that can make this process much faster at runtime but initially I'll be sticking with the tried and true chained table lookup. A useful feature to add to early disassemblers is pretty printing of the instructions, which enables much better output from later parts of system and makes things significantly easier to debug.
+<h4>Basic Block Slicing / Control Flow Graph Construction / Method Recognition</h4>
+<div>Basic blocks in this context refer to a sequence of instructions that starts at an instruction that is jumped to by another basic block and ends at the first flow control instruction. This gets the instruction stream into a form that enables the next step.</div>
+Once basic blocks are identified they can be linked together to form a Control Flow Graph (CFG). Using the CFG it is possible to identify unique entry and exit points of portions of the graph and call those 'methods'. Sometimes they match 1:1 with the original input code, but other times due to optimizing compilers (inlining, etc) may not - it doesn't matter to a recompiler (but does to a decompiler). Usually the process of CFG generation is combined with the basic block slicing step and executed in multiple passes until all edges have been identified.
+
+There are some tricky details here that make this stage not 100% reliable, namely function pointers. Simple C function pointer passing (callbacks/etc) as well as things like C++ vtables can prevent a proper whole-program CFG from being constructed. In these cases, where the target code may appear to have never been called (as there were no jumps/branches into it) it is important to have a method recognition heuristic to identify them and bring them into the recompiled output. The first stage of this is scanning for holes in the code address space: if after all processing has been done there are still regions that are not assigned to methods they are now suspicious - it's possible that the contents of the holes are actually data or padding and it's important to have a set of rules to follow to identify that. Popular heuristics are looking for function prologues and ensuring a region has all valid instructions. Once found the recompiler isn't done, though, as even if the method gets to the output there is still no way to connect it up to the original callers accessing it by pointer. One way to solve this is to make all call-by-pointer sites instead look up the function in a table of all functions in the module. It can be significantly slower than the native call, but caches can help.
+<h4><span style="font-size: 15px;">Analysis</span></h4>
+The results of the frontend are already fairly usable, however to generate better output the recompiler needs to do a bit of analysis on the source instructions. What comes out of the frontend is a literal interpretation of the source and as such is missing a lot of the extra information that the backend can potentially use to optimize the output. There are hundreds of different things that can be done at this stage as required, but for recompilers there are a few important ones:
+<ul>
+	<li><a href="http://en.wikipedia.org/wiki/Data-flow_analysis" target="_blank">Data Flow Analysis</a> (DFA)</li>
+	<li><a href="http://en.wikipedia.org/wiki/Control_flow_analysis" target="_blank">Control Flow Analysis</a> (CFA)</li>
+</ul>
+<h4>Data Flow Analysis</h4>
+Since PPC is a RISC architecture there is often a large number of instructions that work on intermediate registers just for the sake of accomplishing one logical instruction. For example, look at this bit of disassembly (what would come out of the frontend):
+<div>
+<pre>.text:8210E77C                 lwz     %r11, 0x54(%r31)
+.text:8210E780                 lwz     %r9, 0x90+var_40(%sp)
+.text:8210E784                 lwz     %r10, 0x50(%r31)
+.text:8210E788                 mullw   %r11, %r11, %r9
+.text:8210E78C                 add     %r11, %r11, %r10
+.text:8210E790                 lwz     %r10, 0x90+var_3C(%sp)
+.text:8210E794                 add     %r11, %r11, %r10
+.text:8210E798                 stw     %r11, 0(%r29)</pre>
+</div>
+A simple decompilation of this is:
+<pre>var x = (r31)[0x54];
+var y = (sp)[0x90+var_40];
+var z = (r31)[0x50];
+x *= y;
+x += z;
+z = (sp)[0x90+var_3C];
+x += z;
+(r29)[0] = x;</pre>
+If you used this as output in your recompiler, however, you would end up with many more instructions being executed than required. A simple data flow analysis would enable result propagation (x = x * y + z, etc) and <a href="http://en.wikipedia.org/wiki/Static_single_assignment_form" target="_blank">SSA</a> (knowing that the second lwz into %r10 is a different use of z). Performing this step would allow an output that is much more simple and easier for down-stream optimization passes to deal with:
+<pre>(r29)[0] = ((r31)[0x54] * (sp)[0x90+var_40]) + (r31)[0x50] + (sp)[0x90+var_3C];</pre>
+<h4>Control Flow Analysis</h4>
+With a constructed Control Flow Graph it's possible to start trying to identify what the original flow control constructs were. It's not required to do this in a recompiler, as the output of the compiler will still be correct if passed through directly to the backend, however the more information that can be provided to the backend the better. Compilers will often change for- and while-loops into post-tested loops (do-while) or specific processor forms, such as the case of PPC which has a special branch counter instruction. By inspecting the structure of the graph it's possible to figure out what are loops vs. conditional branches, and just where the loops are and what basic blocks are included inside the body of the loop. By encoding this information in the IR the backend can do better local variable allocation by knowing what variables are accessible from which pieces of code, better code layout by knowing which side of the branch/loop is likely to be executed the most, etc.
+
+CFA is also required for correct DFA - you could imagine scenarios where registers or locals are set before a jump and changed in the flow. You would not be able to perform the data propagation or collapsing without knowing for certain what the potential values of the register/local could be at any point in time.
+<h3>Backend (IR -&gt; MC)</h3>
+I'll be doing an entire post (or more) about what I'm planning on doing here for this project, but for completeness here's an overview:
+
+Backends can vary in both type and complexity. The simplest backend is an interpreter, executing the instruction stream produced by the frontend one instruction at a time (and ignoring most of the metadata attached). JITs can use the information to produce either simple basic block-based code chunks or entire method chunks. Or, as I'm aiming for, a compiler/linker can be used to do a whole bunch more.
+
+Right now I'm targeting LLVM IR (plus some custom code) for the backend. This enables me to run the entire LLVM optimization pass over the IR to produce some of the best possible output, use the LLVM interpreter or JIT to get runtime translation, or the offline LLVM tools to generate executables that can be run on the host machine. The complex part of this process is getting the IR used in the rest of this process into LLVM IR, which is at a much higher level than machine instructions. Luckily others have already used LLVM for purposes like this, so at least it's possible!
+
+&nbsp;

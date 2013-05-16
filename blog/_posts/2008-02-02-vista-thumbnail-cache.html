@@ -1,0 +1,102 @@
+--- 
+tags: 
+- Coding
+- System Hacks
+meta: {}
+
+title: Vista Thumbnail Cache
+type: post
+status: publish
+published: true
+layout: post
+---
+I had a thought while messing with fast thumbnailing: why generate my own thumbnails when Explorer has already generated them for me? After an hour or so, I was able to code up a thumbs.db reader for XP (and kin, although I never tested it). Vista, on the other hand, has taken a bit longer...
+
+Note: the structures listed in this file are in pseudo-C syntax - I use <a target="_blank" href="http://www.sweetscape.com/010editor/">010 Editor</a> as my hex editor, and it has some cool templating features - the bits below are just copied out of the templates I made.
+
+<strong>If you find this information useful, please link back here!</strong>
+<h3>Thumbs.db</h3>
+Older versions of Explorer (those in 9x to 2003) would dump 'thumbs.db' files in any directory you navigated to and it generated thumbnails for. These files are serialized OLE databases, similar to (pre-2007) Office documents, containing a special 'Catalog' of filenames and a list of thumbnail entries. It's pretty trivial to find the thumbnail for a given file by looking through the catalog for the filename and reading out the corresponding entry.
+<h5>Resources</h5>
+<a target="_blank" href="http://vinetto.sourceforge.net/docs.html">Vinetto thumbnail dumper</a>, <a target="_blank" href="http://www.petedavis.net/MySite/DynPageView.aspx?pageid=31">Pete's ThumbDBLib (the comments have useful stuff)</a>
+<h3>thumbcache_*.db</h3>
+Instead of dirtying up every directory with a thumbs.db, Vista is a bit smarter - it has a set of files under AppData\Local\Microsoft\Windows\Explorer. There's the thumbcache_idx.db index, a set of files for each size (thumbcache_32.db, thumbcache_96.db, thumbcache_256.db, and thumbcache_1024.db), and finally some other file (thumbcache_sr.idx) that I haven't figured out yet - maybe <u>s</u>tring <u>r</u>esources. When trying to find a thumbnail, Explorer first looks in the idx file, finds the entry it wants, and then uses that information to find the data in the container with the size it's looking for.
+<h5>thumbcache_idx.db (IMMM)</h5>
+There are two basic structures in this file: the header, and the entries.
+<pre class="csharpcode">typedef <span class="kwrd">struct</span> {
+    CHAR magic[4]; <span class="rem">// IMMM</span></pre>
+<pre class="csharpcode">    DWORD unk1;
+    DWORD unk2;
+    DWORD headerSize;
+    DWORD entryCount;
+    DWORD unk4;
+} IMMMH;</pre>
+<pre class="csharpcode"></pre>
+<style type="text/css">    .csharpcode, .csharpcode pre { 	font-size: small; 	color: black; 	font-family: consolas, "Courier New", courier, monospace; 	background-color: #ffffff; 	/*white-space: pre;*/ } .csharpcode pre { margin: 0em; } .csharpcode .rem { color: #008000; } .csharpcode .kwrd { color: #0000ff; } .csharpcode .str { color: #006080; } .csharpcode .op { color: #0000c0; } .csharpcode .preproc { color: #cc6633; } .csharpcode .asp { background-color: #ffff00; } .csharpcode .html { color: #800000; } .csharpcode .attr { color: #ff0000; } .csharpcode .alt  { 	background-color: #f4f4f4; 	width: 100%; 	margin: 0em; } .csharpcode .lnum { color: #606060; } </style>Found at the top of the file; immediately following this header there are IMMMH.entryCount IMMM entries:
+<pre class="csharpcode">typedef <span class="kwrd">struct</span> {
+    UQUAD secret&lt;format=hex&gt;;
+    FILETIME lastModified;
+    UINT unk2;
+    UINT offset32&lt;format=hex&gt;;
+    UINT offset96&lt;format=hex&gt;;
+    UINT offset256&lt;format=hex&gt;;
+    UINT offset1024&lt;format=hex&gt;;
+    UINT offsetsr&lt;format=hex&gt;;
+} IMMM;</pre>
+<pre class="csharpcode"></pre>
+<style type="text/css">    .csharpcode, .csharpcode pre { 	font-size: small; 	color: black; 	font-family: consolas, "Courier New", courier, monospace; 	background-color: #ffffff; 	/*white-space: pre;*/ } .csharpcode pre { margin: 0em; } .csharpcode .rem { color: #008000; } .csharpcode .kwrd { color: #0000ff; } .csharpcode .str { color: #006080; } .csharpcode .op { color: #0000c0; } .csharpcode .preproc { color: #cc6633; } .csharpcode .asp { background-color: #ffff00; } .csharpcode .html { color: #800000; } .csharpcode .attr { color: #ff0000; } .csharpcode .alt  { 	background-color: #f4f4f4; 	width: 100%; 	margin: 0em; } .csharpcode .lnum { color: #606060; } </style>The 'secret' is a 64-bit identity for the entry - it seems to be based on the file name, data, and maybe modification time. unk2 may be a kind of type - it either seems to be 0 or 1. Alternatively, it could be the color of the node, if the idx file contains a serialized red-black tree (which is what the thumbs.db file is). Finally, the structure has the offsets into the 4 size files and sr file of the entry. These may be set to -1 (0xFFFFFFFF) if the entry does not exist in the files.
+Interestingly, a lot of entries in the idx file are zeroed out - this makes me think that the file is some serialized tree with spaces for expansion. In my experiments, the IMMMH.entryCount is the number of entries total, not the number of valid ones. If a secret is 0, I just skip it.
+<h5>thumbcache_*.db (CMMM)</h5>
+The other files seem to be content databases, containing a small header followed by a list of entries like the idx file. These files can be scanned to dump all thumbnails, but for lookup it's obvious the idx file is used. One interesting thing about this file format is that they seem to allocate the file in large chunks (probably to prevent fragmentation), and include a placeholder entry at the end of the file. When a new thumbnail needs to be added, it's placed at the end and the placeholder moves down.
+<pre class="csharpcode">typedef <span class="kwrd">struct</span> {
+    CHAR magic[4]; <span class="rem">// CMMM</span>
+    DWORD unk1;
+    DWORD unk2;
+    DWORD headerSize;
+    DWORD offsetLastEntry;
+    DWORD entryCount;
+} CMMMH;</pre>
+<style type="text/css">    .csharpcode, .csharpcode pre { 	font-size: small; 	color: black; 	font-family: consolas, "Courier New", courier, monospace; 	background-color: #ffffff; 	/*white-space: pre;*/ } .csharpcode pre { margin: 0em; } .csharpcode .rem { color: #008000; } .csharpcode .kwrd { color: #0000ff; } .csharpcode .str { color: #006080; } .csharpcode .op { color: #0000c0; } .csharpcode .preproc { color: #cc6633; } .csharpcode .asp { background-color: #ffff00; } .csharpcode .html { color: #800000; } .csharpcode .attr { color: #ff0000; } .csharpcode .alt  { 	background-color: #f4f4f4; 	width: 100%; 	margin: 0em; } .csharpcode .lnum { color: #606060; } </style>
+<pre class="csharpcode"></pre>
+<style type="text/css">    .csharpcode, .csharpcode pre { 	font-size: small; 	color: black; 	font-family: consolas, "Courier New", courier, monospace; 	background-color: #ffffff; 	/*white-space: pre;*/ } .csharpcode pre { margin: 0em; } .csharpcode .rem { color: #008000; } .csharpcode .kwrd { color: #0000ff; } .csharpcode .str { color: #006080; } .csharpcode .op { color: #0000c0; } .csharpcode .preproc { color: #cc6633; } .csharpcode .asp { background-color: #ffff00; } .csharpcode .html { color: #800000; } .csharpcode .attr { color: #ff0000; } .csharpcode .alt  { 	background-color: #f4f4f4; 	width: 100%; 	margin: 0em; } .csharpcode .lnum { color: #606060; } </style>offsetLastEntry is the offset in the file of the last CMMM entry, and is used for quickly appending entries to the file. Immediately following this header, the entries start:
+<pre class="csharpcode">typedef <span class="kwrd">struct</span> {
+    CHAR magic[4]; <span class="rem">// CMMM</span>
+    DWORD sizeHeaderAndData;
+    UQUAD secret&lt;format=hex&gt;;
+    CHAR ext[8]; <span class="rem">// Unicode - sometimes .txt, .jpg, etc</span>
+    DWORD huh1;
+    DWORD type; <span class="rem">// 0 or 1?</span>
+    DWORD dataSize;
+    DWORD unk1;
+    DWORD unk2;
+    DWORD unk3;
+    DWORD unk4;
+    DWORD unk5;
+    CHAR name[32]; <span class="rem">// Unicode of some 16 character hex encoding of a string</span>
+    <span class="kwrd">if</span>( sizeHeaderAndData - size &gt; 88 )
+        CHAR padding[ sizeHeaderAndData - size - 88 ];
+    <span class="kwrd">if</span>( size &gt; 0 )
+        CHAR data[ size ];
+} CMMM;</pre>
+<style type="text/css">    .csharpcode, .csharpcode pre { 	font-size: small; 	color: black; 	font-family: consolas, "Courier New", courier, monospace; 	background-color: #ffffff; 	/*white-space: pre;*/ } .csharpcode pre { margin: 0em; } .csharpcode .rem { color: #008000; } .csharpcode .kwrd { color: #0000ff; } .csharpcode .str { color: #006080; } .csharpcode .op { color: #0000c0; } .csharpcode .preproc { color: #cc6633; } .csharpcode .asp { background-color: #ffff00; } .csharpcode .html { color: #800000; } .csharpcode .attr { color: #ff0000; } .csharpcode .alt  { 	background-color: #f4f4f4; 	width: 100%; 	margin: 0em; } .csharpcode .lnum { color: #606060; } </style>
+<pre class="csharpcode"></pre>
+<style type="text/css">    .csharpcode, .csharpcode pre { 	font-size: small; 	color: black; 	font-family: consolas, "Courier New", courier, monospace; 	background-color: #ffffff; 	/*white-space: pre;*/ } .csharpcode pre { margin: 0em; } .csharpcode .rem { color: #008000; } .csharpcode .kwrd { color: #0000ff; } .csharpcode .str { color: #006080; } .csharpcode .op { color: #0000c0; } .csharpcode .preproc { color: #cc6633; } .csharpcode .asp { background-color: #ffff00; } .csharpcode .html { color: #800000; } .csharpcode .attr { color: #ff0000; } .csharpcode .alt  { 	background-color: #f4f4f4; 	width: 100%; 	margin: 0em; } .csharpcode .lnum { color: #606060; } </style>sizeHeaderAndData is the size of the header (usually 88 or 90b) + dataSize. Note that some entries are empty (dataSize=0). The secret here is the same secret in the IMMM file entry. The name field is weird as it's a Unicode string of the hex of some 8 byte number (not the secret).
+
+The CMMM file can contain a lot of different things; BMPs/JPEGs/etc for thumbnails, pre-rendered folder icons (that include the child thumbnails), and file icons (e.g., the icon for .txt files). The ext field is sometimes populated with the extension, if available. Folder icons and such always seem to be PNG, while small thumbnails (those in the thumbcache_32.db file) seem to be BMPs - probably to save on decode time. The larger sizes seem to be JPGs.
+<h5>Lookup and the Secret</h5>
+The actual lookup is fairly easy:
+<ol>
+	<li>Load the thumbcache_idx.db file</li>
+	<li>Find the IMMM entry with the secret ID you are looking for</li>
+	<li>If the offset in the content db you are looking for is not -1, open that content db file</li>
+	<li>Seek to the position given in the IMMM</li>
+	<li>Read dataSize bytes</li>
+</ol>
+The only complicated part is generating the secret ID. I currently have no way of doing this - it has to be something containing both the filename and some sort of hash/checksum of the file data, but I don't know. A few simple tests show this, one being renaming a file - it'll get a new entry in the db, even though the bytes did not change. Saving two identical files under different names will also result in two different IDs.
+<h3></h3>
+<h3>Call for Help</h3>
+If you know anything about the secret ID - what it could be, how to generated, etc, please let me know or post a comment! It's possible to run Explorer through IDA and catch what it does, but my x86 disassembler skills are not advanced enough for that :)
+<h3>Templates</h3>
+You can download the 010 Editor templates here: <a href="http://www.noxa.org/blog/wp-content/uploads/2008/02/thumbcachetemplates.zip" title="Download thumbcache templates">ThumbCache Templates</a>
+
+To use, open 010 Editor, open the idx and content files, then go Templates-&gt;Open Template. Browse to the .bt file, open it, click into the corresponding document (e.g., the idx.db if you opened the immm.bt template), and hit F10. You should see a small pane appear below the hex that lets you look at all the structures.

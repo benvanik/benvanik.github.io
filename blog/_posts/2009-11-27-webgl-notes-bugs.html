@@ -1,0 +1,97 @@
+---
+tags:
+- Coding
+- Graphics
+- HTML5
+- Javascript
+- Web
+- WebGL
+meta:
+  _edit_last: "2"
+title: WebGL notes & bugs
+type: post
+status: publish
+published: true
+layout: post
+---
+I've been playing around with WebGL the past few weeks and have finally started to enjoy it (as it's actually started working in the nightlies!). I've been doing OpenGL programming for awhile, and most recently a lot against OpenGL ES, so the transition was rather natural. Unfortunately, WebGL is still very much cutting edge stuff, and getting things working reliably and cross browser is near impossible.
+
+To that end, the following are some notes and gotchas I've run into. I hope that most of these won't stay valid for long, but who knows ^_^
+
+<strong>Firefox has a broken gl.bindFramebuffer (as of 2009-11-27)</strong>
+
+The gl.bindFramebuffer method implementation is totally borked, preventing its use.  There is no workaround in client code - you must apply a patch (or make the few line changes yourself).
+
+Workaround: none, besides compiling your own build with changes
+
+Reference: <a href="http://www.khronos.org/message_boards/viewtopic.php?f=45&amp;t=2247">http://www.khronos.org/message_boards/viewtopic.php?f=45&amp;t=2247</a>
+
+Bug (Firefox): <a href="https://bugzilla.mozilla.org/show_bug.cgi?id=528013">https://bugzilla.mozilla.org/show_bug.cgi?id=528013</a>
+
+<strong>WebKit/Chromium doesn't accept null for gl.useProgram (as of 2009-11-27)</strong>
+
+If you try calling gl.useProgram(null) you will get an exception. Apparently certain WebKit versions will accept 0, but that doesn't work on Chromium either.
+
+Workaround: just comment it out for now
+
+Bug (WebKit): <a href="https://bugs.webkit.org/show_bug.cgi?id=31946">https://bugs.webkit.org/show_bug.cgi?id=31946</a>
+
+<strong>WebKit/Chromium/Firefox don't accept null data for texImage2D (as of 2009-11-27)</strong>
+
+This is more of an annoyance than anything. The GL spec allows you to pass NULL for the last parameter of glTexImage2D, which creates an empty texture of the right size/format/etc. This is nice for when you will later be filling the texture (via render-to-texture or something) as you can skip creating a potentially large amount of garbage.
+
+Workaround:
+<pre>function emptyTexImage2D(gl, internalFormat, width, height, format, type) {
+    try {
+        gl.texImage2D(gl.TEXTURE_2D, 0, internalFormat, width, height, 0, format, type, null);
+    } catch (e) {
+        console.warn("browser texImage2D does not accept null - sending up a real blank texture");
+        var pixels = new WebGLUnsignedByteArray(width * height * ( internalFormat == gl.RGBA ? 4 : 3 ) );
+        gl.texImage2D(gl.TEXTURE_2D, 0, internalFormat, width, height, 0, format, type, pixels);
+    }
+}</pre>
+Bug (WebKit): <a href="https://bugs.webkit.org/show_bug.cgi?id=31948">https://bugs.webkit.org/show_bug.cgi?id=31948</a>
+
+Bug (Firefox): <a href="https://bugzilla.mozilla.org/show_bug.cgi?id=481151">https://bugzilla.mozilla.org/show_bug.cgi?id=481151</a>
+
+<strong>WebKit/Chromium readPixels only supports GL_RGBA/GL_UNSIGNED_BYTE (as of 2009-11-27)</strong>
+
+So don't try anything else yet.
+
+<strong>WebKit/Chromium texSubImage2D is not implemented (as of 2009-11-27)</strong>
+
+Firefox seems to implement it (but I haven't tried it yet), but all versions are TODO in the WebKit code.
+
+<strong>WebKit/Chromium may return bogus values in WebGL arrays (as of 2009-11-27)</strong>
+
+Not thoroughly tested yet, but I'm doing a gl.readPixels (which returns a WebGLUnsignedByteArray) and iterating over each pixel - the values need to be modded by 256 to be used - indicating an issue with the casting (or something). I don't yet know enough about debugging/marshalling/etc to figure it out. I still need to build a decent repro case for it.
+
+Workaround: % 256 all results from a pixel array before use
+
+<strong>(At least) Firefox has a bugged interleaved array implementation (as of 2009-11-29)</strong>
+
+<a title="Martin" href="http://www-users.rwth-aachen.de/">Martin</a> (Coolcat) reminds me of this *painful* issue. Interleaved arrays are a big perf gain and it's the way you should do things - it's a technique so natural to me that every time I go to draw something in WebGL I have to rewrite it after it doesn't work to get around the issue. Firefox has a bug filed, but I'm positive WebKit/Chromium is also hosed. It explains why every WebGL demo doesn't use interleaved arrays!
+
+Workaround: create a vertex buffer per attribute - each must have a zero stride and no offset.
+
+Bug (Firefox): <a href="https://bugzilla.mozilla.org/show_bug.cgi?id=521667">https://bugzilla.mozilla.org/show_bug.cgi?id=521667</a>
+
+<strong>Relevant Source Code</strong>
+
+Because these are often a pain in the ass to find whenever you want to verify something:
+
+WebKit:
+<ul>
+	<li><a href="https://svn.webkit.org/repository/webkit/trunk/WebCore/html/canvas/">https://svn.webkit.org/repository/webkit/trunk/WebCore/html/canvas/</a></li>
+	<li><a href="https://svn.webkit.org/repository/webkit/trunk/WebCore/html/canvas/WebGLRenderingContext.cpp">https://svn.webkit.org/repository/webkit/trunk/WebCore/html/canvas/WebGLRenderingContext.cpp</a></li>
+	<li><a href="https://svn.webkit.org/repository/webkit/trunk/WebCore/platform/graphics/mac/GraphicsContext3DMac.cpp">https://svn.webkit.org/repository/webkit/trunk/WebCore/platform/graphics/mac/GraphicsContext3DMac.cpp</a></li>
+</ul>
+Firefox:
+<ul>
+	<li><a href="http://hg.mozilla.org/mozilla-central/file/tip/content/canvas/src">http://hg.mozilla.org/mozilla-central/file/tip/content/canvas/src</a></li>
+	<li><a href="http://hg.mozilla.org/mozilla-central/file/tip/content/canvas/src/WebGLContextGL.cpp">http://hg.mozilla.org/mozilla-central/file/tip/content/canvas/src/WebGLContextGL.cpp</a></li>
+</ul>
+Chromium:
+<ul>
+	<li>?? Looks like they pull right from webkit.org now, and no longer have their own copy in their repo</li>
+</ul>

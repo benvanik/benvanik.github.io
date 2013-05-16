@@ -1,0 +1,79 @@
+---
+tags:
+- Coding
+- Emulation
+- Projects
+- Xbox 360
+- Xenia
+title: "Building an Xbox 360 Emulator, part 4: Tools and Information"
+type: post
+status: publish
+published: true
+layout: post
+---
+Before going much further I figured it'd be useful to document the setup I've been using to do my reversing. It should make it easier to follow along, and if I forget myself I've got a good reference. Note that I'm going off of publicly searchable information here - everything I've been doing is sourced from Google (and surprisingly sometimes Bing, which ironically indexes certain 360 hacking related information better than Google does!).
+
+I'll try to update this list if I find anything interesting.
+<h2>Primary Sources</h2>
+<h3>Various Internet Searches</h3>
+There's a wealth of information out there on the interwebs, although it's sometimes hard to find. Google around for these and you'll find interesting things...
+
+Most of the APIs I've been researching turn up hits on pastebin, providing snippets of sample code from hackers and what I assume to be legit developers. None of it is tagged or labeled, but the API names are unique enough to find exactly the right information. Most of the method signatures and usage information I've gathered so far have come from sources like this.
+
+PowerPC references:
+<ul>
+	<li>Altivec_PEM.pdf / AltiVec Technology Programming Environments Manual</li>
+	<li>MPCFPE_AD_R1.pdf / PowerPC Microprocessor Family: The Programming Environments</li>
+	<li>pem_64bit_v3.0.2005jul15.pdf / PowerPC Microprocessor Family: The Programming Environments Manual for 64-bit Microprocessors</li>
+	<li>PowerISA_V2.06B_V2_PUBLIC.pdf / Power ISA Version 2.06 Revision B</li>
+	<li>vector_simd_pem_v_2.07c_26Oct2006_cell.pdf / PowerPC Microprocessor Family: Vector/SIMD Multimedia Extension Technology Programming Environments Manual</li>
+	<li><a href="http://biallas.net/doc/vmx128/vmx128.txt" target="_blank">vmx128.txt</a></li>
+</ul>
+<div>GPU references:</div>
+<div>
+<ul>
+	<li>R700-Family_Instruction_Set_Architecture.pdf / ATI R700-Family Instruction Set Architecture</li>
+	<li>ParticleSystemSimulationAndRenderingOnTheXbox360GPU.pdf / interesting bits about memexport</li>
+</ul>
+</div>
+<div>Xbox 360 specific:</div>
+<div>
+<ul>
+	<li>xbox360-file-reference.pdf / Xbox 360 File Specifications Reference</li>
+</ul>
+</div>
+<h3><a href="http://free60.org" target="_blank">Free60</a></h3>
+<ul>
+	<li><a href="http://free60.org/Xenon_(CPU)" target="_blank">Xenon (CPU)</a> &amp; <a href="http://free60.org/Xenos_(GPU)" target="_blank">Xenos (GPU)</a></li>
+	<li><a href="http://free60.org/Starting_Homebrew_Development" target="_blank">Starting Homebrew Development</a> (toolchain setup, LibXenon, etc)</li>
+	<li><a href="http://free60.org/XEX" target="_blank">XEX</a> file format documentation</li>
+</ul>
+The <a href="http://free60.org" target="_blank">Free60</a> project is probably the best source of information I've found. The awesome hackers there have reversed quite a bit of the system for the commendable purpose of running Linux/homebrew, and have got a robust enough toolchain to compile simple applications.
+
+I haven't taken the time to mod and setup their stack on one of my 360's, but for the purpose of reversing and building an emulator it's invaluable to have documentation-through-code and the ability to generate my own executables that are far simpler than any real game. If not for the hard work of the <a href="http://forums.ps2dev.org/viewforum.php?f=14" target="_blank">ps2dev community</a> I never would have been able to do my PSP emulator.
+<h3>Microsoft</h3>
+There's quite a bit of information out there if you know where to look and what to look for. Although not all specific to the 360, a lot of the details carry over.
+<h4><a href="http://research.microsoft.com/en-us/um/redmond/projects/invisible/" target="_blank">mmlite</a></h4>
+Microsoft Invisible Computing is a project that has quite a bit of code in it that provides a small RTOS for embedded systems. What makes it interesting (and how I found it) is that it contains several files enabling support for PowerPC architectures. It appears as though the code that ended up in here came from either the same place the Xbox team got their code from, or is even the origin of some of the Xbox toolchain code.
+
+Specifically, the src/crt/md/ppc/xxx.s file has the __savegpr/__restgpr magic that tools like XexTool patch in to IDA dumps. Instead of guessing what all those tiny functions do it's now possible to see the commented code and how it's used. I'm sure there's more interesting stuff in here too (possibly related to the CRT), but I haven't had the need for it yet.
+<h4><a href="http://msdn.microsoft.com/en-us/library/ff552927(v=VS.85).aspx" target="_blank">DDI API</a></h4>
+A complete listing of all Direct3D9 API calls down to driver mode, with all of the arguments to them. The user-mode D3D implementation on Windows provided by Microsoft calls down into this layer to pass on commands to the driver. On the 360, this API (minus all the fixed function calls) <strong>is</strong> the command buffer format! Although the exact command opcodes are not documented here, there's enough information (combined with tmbinc's code below) to ensure a somewhat-proper initial implementation.
+<h4><a href="http://msdn.microsoft.com/en-us/library/ff552891(v=VS.85).aspx" target="_blank">Direct3D Shader Codes</a></h4>
+The details of the compiled HLSL bytecode are all laid out in the Windows Driver Kit. Minus some of the Xenos-specific opcodes, it's all here. This should make the shader translation code much easier to write.
+<h4><a href="http://msdn.microsoft.com/en-us/directx/aa937788" target="_blank">DirectX Effect Compiler</a></h4>
+By using the command line effect compiler (fxc.exe) it is possible to both assemble and disassemble HLSL for the Xenos - with some caveats. After rummaging through some games I was able to get a few compiled shaders and by munging their headers get the standard fxc to dump their contents (as most shaders are just vs_3_0 and ps_3_0).
+
+The effect compiler in XNA Game Studio does not include the disassembler, but does support direct output of HLSL to binaries the Xenos can run. This tool, combined with the shader opcode information, should be plenty to get simple shaders going.
+<h3><a href="http://debugmo.de/2008/03/xbox-360-gpu-update/" target="_blank">tmbinc's gpu code</a> / 'gpu-0.0.5.tar.gz'</h3>
+Absolutely incredible piece of reversing here, amounting to the construction of an almost complete API for the Xenos GPU. Even includes information about how the Xbox-specific vfetch instruction is implemented. When it comes to processing the command buffers, this code will be critical to quickly getting things normalized.
+<h3><a href="http://www.caustik.com/cxbx/" target="_blank">Cxbx</a></h3>
+Once thought to be a myth, Cxbx is an Xbox 1 emulator capable of running retail games. A very impressive piece of work, its code provides insights into the 360 by way of the Xbox 1 having a very similar NT-like kernel. Although Cxbx had an easier life by virtue of being able to serve as mainly a runtime library and patching system (most of the x86 code is left untouched), the details of a lot of the NT-like APIs are very interesting. Through some research it seems like a lot have changed between the Xbox 1 and the 360 (almost enough so to make me believe there was a complete rewrite in-between), some of the finer differences between things like security handles and such should be consistent.
+<h3><a href="http://abgx360.net/" target="_blank">abgx360</a></h3>
+Although it may be some of the worst C I've ever seen, the raw amount of information contained within is mind boggling - everything one needs to read discs and most of the files on those discs (and the meanings of all of the data) reside within the single-file, 860KB, 16000 line code.
+<h3><a href="http://hitmen.c02.at/html/xbox360_releases.html" target="_blank">xextool</a> (xor37h/Hitmen)</h3>
+There are many 'xextool's out there, but this version written way back in 2006 is one of the few that does the full end-to-end XEX decryption and has source available. Having not been updated in half a decade (and having never been fully developed), it cannot decode modern XEX files but does have a lot of what abgx360 does in a much easier-to-read form.
+<h3><a href="http://forums.xbox-scene.com/index.php?showtopic=642051" target="_blank">XexTool</a> (xorloser)</h3>
+The best 'xextool' out there, this command line app does quite a bit. For my purposes it's interesting because it allows the dumping of the inner executable from XEX files along with a .idc file that IDA can use to resolve import names. By using this it's possible to get a pretty decent view of files in IDA and makes reversing much easier. Unfortunately (for me), xorloser has never released the code and it sounds like he never will.
+<h3><a href="http://forums.xbox-scene.com/index.php?showtopic=642051" target="_blank">PPCAltivec IDA plugin</a> (xorloser)</h3>
+Another tool released by xorloser (originally from Dean Ashton), this IDA plugin adds support for all of the Altivec/VMX instructions used by the 360 (and various other PPC based consoles). Required when looking at real code, and when going to implement the decoder for these instructions the source (included) will prove invaluable, as most of the opcodes are undocumented.

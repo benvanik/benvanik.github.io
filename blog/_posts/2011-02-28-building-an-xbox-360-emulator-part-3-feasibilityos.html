@@ -1,0 +1,146 @@
+--- 
+tags: 
+- Emulation
+- Xbox 360
+- Xenia
+meta: 
+  _edit_last: "2"
+  _wp_old_slug: ""
+title: "Building an Xbox 360 Emulator, part 3: Feasibility/OS"
+type: post
+status: publish
+published: true
+layout: post
+---
+<h2>Research</h2>
+The final part of the research phase (previously: <a href="http://www.noxa.org/blog/?p=116">CPU</a>, <a href="http://www.noxa.org/blog/?p=124">GPU</a>), this post discusses what it would take to emulate the OS on the 360.
+
+I've decided to name the project Xenia, so if you see that name thrown around that's what I'm referring to. I thought it was cute because of <a href="http://en.wikipedia.org/wiki/Xenia_(Greek)">what it means in Greek</a> (think host/guest as common terms in emulation) and it follows the Xenon/Xenos naming of the Xbox 360.
+<h2>Xbox Operating System</h2>
+Reference: xorloser's <a href="http://www.noxa.org/blog/wp-content/uploads/2011/02/x360_imports.zip">x360_imports</a>, <a href="http://source.winehq.org/source/dlls/">Wine</a>, <a href="http://msdn.microsoft.com/en-us/library/ff542078.aspx">MSDN</a>, <a href="http://svn.reactos.org/svn/reactos/trunk/reactos/ntoskrnl/">ReactOS</a>, various forum posts
+
+The operating system on the Xbox 360 is commonly thought to be a paired down version of the Windows 2000 kernel. Although it has a similar API, it is in fact a from-scratch implementation. The good news is that even though the implementation differs (although I'm sure there's some shared code) the API is really all that matters and that API is largely documented and publicly reverse engineered.
+
+Cross referencing some disassembled executables and xorloser's <a href="http://www.noxa.org/blog/wp-content/uploads/2011/02/x360_imports.zip">x360_imports</a> file, there's a fairly even split of public vs. private APIs. For every <a href="http://msdn.microsoft.com/en-us/library/ff551986.aspx">KeDelayExecutionThread</a> that has nice MSDN documentation there's a XamShowMessageBoxUIEx that is completely unknown. Scanning through many of the imported methods and their call signatures their behavior and function can be inferred, but others (like XeCryptBnQwNeModExpRoot) are going to require a bit more work. Some map to public counterparts that are documented, such as XamGetInputState being equivalent to XInputGetState.
+
+One thing I've noticed while looking through a lot of the used API methods is that many are at a much lower level than one would expect. Since I know games aren't calling kernel methods directly, this must mean that the system libraries are actually statically compiled into the game executables. Let that sink in for a second. It'd be like if on Windows every single application had all of Win32 compiled into it. I can see why this would make sense from a versioning perspective (every game has the exact version of the library they built against always properly in sync), but it means that if a bug is found every game must be updated. What this means for an emulator, though, is that instead of having to implement potentially thousands of API calls there are instead a few hundred simple, low-level calls that are almost guaranteed to not differ between games. This simultaneously makes things easier and harder; on one hand, there are fewer API calls to implement and they should be easier to get right, but on the other hand there may be several methods that would have been much easier to emulate at a higher level (like D3D calls).
+<h3><strong>Xbox Kernel (xboxkrnl.exe)</strong></h3>
+Every Xbox has an xboxkrnl module on it, exporting an API similar to ntoskrnl on desktop Windows plus a bunch of additional APIs.
+
+It provide quite a useful set of functionality:
+<ul>
+	<li>Program control</li>
+	<li>Synchronization primitives (events, semaphores, critical sections)</li>
+	<li>Threading</li>
+	<li>Memory management</li>
+	<li>Common string routines (Unicode comparison, vsprintf, etc)</li>
+	<li>Cryptographic providers (DES, HMAC, MD5, etc)</li>
+	<li>Raw IO</li>
+	<li>XEX file handling and module loading (like LoadLibrary)</li>
+	<li>XAudio, XInput, XMA</li>
+	<li>Video driver (Vd*)</li>
+</ul>
+Of the 800 or so methods present there are a good portion that are documented. Even better, Wine and ReactOS both have most method signatures and quite a few complete implementations.
+
+Some methods are trivial to get emulated - for example, if the host emulator is built on Windows it can often pass down things like (Ex)CreateThread and RtlInitializeCriticalSection right down to the OS and utilize the optimized implementation there. Because the NT API is used there are a lot of these. Some aren't directly exposed to user code (as these are all kernel functions) but can be passed through the user-level functions with only a bit of rewriting. It's possible, with the right tricks, to make these calls directly on desktop Windows (it usually requires the Windows Device Driver Kit to be setup), which would be ideal.
+
+The set that looks like it will be the hardest to properly get figured out are the video methods, like VdInitializeRingBuffer and VdRegisterGraphicsNotification, as it appears like the API is designed for direct writing to a command buffer instead of making calls. This means that, as far as the emulator is concerned, there are no methods that can be intercepted to do useful work - instead, at certain points in time, giant opaque data buffers must be processed to do interesting things. This can make things significantly faster by reducing the call overhead between guest code (the emulated PowerPC instructions) and host code, but makes reverse engineering what's going on much more difficult by taking away easily identifiable call sites and instead giving multi-megabyte data blobs. Ironically, if this buffer format can be reversed it may make building a D3D11/GL3 backend easier than if all the D3D9 state management had to be emulated perfectly.
+<h3>XAM/Xbox ?? (xam.xex)</h3>
+Besides the kernel there is a giant library that provides the bulk of the higher-level functionality in Xbox titles. Where the kernel is the tiny set of low-level methods required to build a functioning OS, XAM is the dumping ground for the rest.
+<ul>
+	<li>Winsock/XNet Xbox Live networking</li>
+	<li>On-screen keyboard</li>
+	<li>Message boxes/UI</li>
+	<li>XContent package file handling</li>
+	<li>Game metadata</li>
+	<li>XUI (Xbox User Interface) loading/rendering/etc</li>
+	<li>User-level file IO (OpenFile/GetFileSize/etc)</li>
+	<li>Some of the C runtime</li>
+	<li>Avatars and other user information</li>
+</ul>
+This is where things get interesting. Luckily it looks like XAM is <strong>everything</strong> one can do on a 360, including what the dashboard and system uses to do its work (like download queues and such) and not all games use all of the methods: most seem to only use a few dozen out of the 3000 exports.
+
+In the context of getting an emulator up and running almost all of the methods can be ignored. Simple 'hello world' applications link in only about 4, and the games I've looked at largely depend on it for error messages and multiplayer functionality - if the emulator starts without any networking, most of those methods can be stubbed. I haven't seen a game yet that uses XUI for its user interface, so that can be skipped too.
+<h2>Emulating the OS</h2>
+Now that the Xbox OS is a bit more defined, let's sketch out how best to emulate it. There are two primary means of emulating system software: low-level emulation (LLE) and high-level emulation (HLE).
+
+Most emulators for early systems (pre-1990's) use low-level emulation because the game systems didn't include an OS and often had a very minimal BIOS. The hardware was also simple enough (even though often undocumented) that it was easier to model the behavior of device registers than entire BIOS/OS systems - this is why early emulators often require a user to find a BIOS to work.
+
+As hardware grew more complex and expensive to emulate high-level emulation started to take over. In HLE the BIOS/OS is implemented in the emulator code (so no original is required) and most of the underlying hardware is abstracted away. This allows for better native optimizations of complex routines and eliminates the need to rip the copyrighted firmware off a real console. The downside is that for well-documented hardware it's often easier to build hardware simulators than to match the exact behavior of complex operating systems.
+
+I had good luck with building an HLE for my PSP emulator as the hardware was sufficiently complex as to make it impossible to support a perfect simulation of it. The Xbox 360 is the same way - no one outside of Microsoft (or ATI or whoever) knows how a lot of the hardware in the system operates (and may never know, as history has shown). We do know, however, how a lot of the NT kernel works and can stub out or mimic things like the dashboard UI when required. For performance reasons it also makes sense to not have a full-on simulation of things like atomic primitives and other crazy difficult constructs.
+
+So there's one of the first pinned down pieces of the emulator: it will be a high-level emulator. Now let's dive in to some of the major areas that need to be implemented there. Note that these areas are what one would look at when building an operating system and that's essentially what we will be doing. These are roughly in the order of implementation, and I'll be covering them in detail in future posts.
+<h3>Memory Management</h3>
+Before code can be loaded into memory there has to be a way to allocate that memory. In an HLE this usually means implementing the common alloc/free methods of the guest operating system - in the Xbox's case this is the <a href="http://msdn.microsoft.com/en-us/library/ff566416.aspx">NtAllocateVirtualMemory</a> method cluster. Using the same set of memory routines for all internal host emulator functions (like module loading, mentioned below) as well as requests from game code keeps things simple and reliable. Since the NT-like API of the 360 matches the Windows API it means that in almost all cases the emulator can use the host memory manager for all its request. This ensures performance (as it can't get any faster than that) and safety (as read/write/execute permissions will be enforced). Since everything is working in a sane virtual address space it also means that debugging things is much easier - memory addresses as visible to the emulated game code will correspond to memory addresses in the host emulator space. Calling host routines (like memcpy or video decompression libraries) require no fixups, and embedded pointers should work without the need for translation.
+
+With my PSP emulator I made the mistake of not doing this first and ended up with two completely different memory spaces and ways of referencing addresses. Lesson learned: even though it's tempting to start loading code first, figuring out where to put it is more important.
+
+There are two minor annoyances that make emulating the 360 a bit more difficult than it should be:
+<h5>Big-Endian Data</h5>
+The 360 is big-endian and as such data structures will need to be byte swapped before and after system API calls. This isn't nearly as elegant as being able to just pass things around. It's possible to write some optimized swap routines for specific structures that are heavily used such that they get inserted directly into translated code as optimally as possible, but it's not free.
+<h5>32-bit pointers</h5>
+On 64-bit Windows all pointers are 64-bits. This makes sense: developers want the large address space that 64-bit pointers gives them so they can make use of tons of RAM. Most applications will be well within the 4GB (or really 2GB) memory limit and be wasting 4 bytes per pointer but memory is cheap so no one cares. The Xbox 360, on the other hand, has only 512MB of memory to be shared between the OS, game, and video memory. 4 wasted bytes per pointer when it's impossible to ever have an address outside the 4 byte pointer range seems too wasteful, so the Xbox compiler team did the logical thing and made pointers 4 bytes in their 64-bit code.
+
+This sucks for an emulator, though, as it means that host pointers cannot be safely round-tripped through the guest code. For example, if NtAllocateVirtualMemory returns a pointer that spills over 4 bytes things will explode when that 8 byte pointer is truncated and forced into a 4 byte guest pointer. There are a few ways around this, none of which are great, but the easiest I can think of is to reserve a large 512MB block that represents all of the Xbox memory at application start and ensure it is entirely within the 32-bit address range. This is easy with <a href="http://msdn.microsoft.com/en-us/library/ff566416.aspx">NtAllocateVirtualMemory</a> (if I decide to use kernel calls in the host) but also possible with <a href="http://msdn.microsoft.com/en-us/library/aa366887.aspx">VirtualAlloc</a>, although not as easy when talking about 512MB blocks. If all future allocations are made from this space it means that pointers can be passed between guest and host without worrying about them being outside the allowable range.
+<h3>Executables and Modules</h3>
+Operating systems need a way to load and execute bundles of code. On the 360 these are XEX files, which are packages that contain a bunch of resources detailing a game as well as an embedded PE-formatted EXE/DLL file containing the actual code. The emulator will then require a loader that can parse one of these files, extract the interesting content, and place it into memory. Any imports, like references to kernel methods implemented in the emulator, will be resolved and patched up and exports will be cataloged until later used. Finally the code can be submitted to the subsystem handling translation/JIT/etc for actual execution.
+
+There are a few distinct components here:
+<h5>XEX Parsing</h5>
+This is fairly easy to do as the XEX file format is well documented and there are many tools out there that can load it. Basic documentation is available on the <a href="http://www.free60.org/XEX">Free60 site</a> but the best resource is working code and both the xextool_v01 and abgx360 code are great (although the abgx360 source is disgusting and ugly). Some things of note are that all metadata required by various Xbox API calls like XGetModuleSection are here, as well as fun things to pull out that the dashboard usually consumes like the game icon and title information.
+<h5>PE (Portable Executable) Parsing</h5>
+The PE file format is how Microsoft stores its binaries (equivalent to ELF on Unix) for both executables and dynamically linked libraries - the only difference between an EXE and a DLL is its extension, from a format perspective. Inside each XEX is a PE file in the raw. This is great, as the PE format is <a href="http://msdn.microsoft.com/en-us/windows/hardware/gg463119.aspx">officially documented by Microsoft</a> and kept up to date, and surprisingly they document the <strong>entire</strong> spec including the PowerPC variant.
+
+A PE file is basically a bunch of regions of data (called sections); some are placed there by the linker (such as the TEXT section containing compiled code and DATA section containing static data) and others can be added by the user as custom resources (like localized strings/etc). Two other special sections are IDATA, describing what methods need to be imported from system libraries, and RELOC, containing all the symbols that must be relocated off of the base address of the library.
+<h5>Loader Logic</h5>
+Once the PE is extracted from the XEX it's time to get it loaded. This requires placing each section in the PE at its appropriate location in the virtual address space and applying any relocations that are required based on the RELOC section. After that an ahead-of-time translator can run over the instructions in memory and translate them into the target machine format. The translator can use the IDATA section to patch imported routines and syscalls to their host emulator implementations and also log exported code if it will be used later on. This is a fairly complex dance and I'll be describing it in a future post. For now, the things to note are that the translated machine code lives outside of the memory space of the emulator and data references must be preserved in the virtual memory space. Think of the translated code and data as a shadow copy - this way, if the game wants to read itself (code or data) it would see exactly what it expects: PowerPC instructions matching those in the original XEX.
+<h5>Module Data Structures</h5>
+After loading and translating a module there is a lot of information that needs to stick around. Both the guest code and the emulator will need to check things in the future to handle calls like LoadLibrary (returning a cached load), GetProcAddress (getting an export), or XGetModuleSection (getting a raw section from the PE). This means that for everything loaded from a XEX and PE there will need to be in-memory counterparts that point at all the now-patched and translated resources.
+<h5>Interface for Processor Subsystem</h5>
+One thing I've been glossing over is how this all interacts with the subsystem that is doing the translation/JIT/etc of the PowerPC instructions. For now, let's just say that there has to be a decent way for it to interact with the loader so that it can get enough information to make good guesses about what code does, how the code interacts with the rest of the system, and notify the rest of the emulator about any fixes it performs on that code.
+<h3>Threads and Synchronization</h3>
+Because the 360 is a multi-core system it can be assumed that almost every game uses many software threads. This means that threading primitives like CreateThread, Sleep, etc will be required as well as all the synchronization primitives that support multi-threaded applications (locks and such). Because the source API is fairly high-level most of these should be easy to pass down to the host OS and not worry too much about except where the API differs.
+
+This is in contrast to what I had to do when working on my PSP emulator. There, the Sony threading APIs differed enough from the normal POSIX or Win32 APIs that I had to actually implement a full thread scheduler. Luckily the PSP was single-core, meaning that only one thread could be running at a time and a lot of the synchronization primitives could be faked. It also greatly reduced the JIT complexity as only one thread could be generating code at a time and it was easy to ensure the coherency of the generated code.
+
+A 360 emulator must fully utilize a multi-core host in order to get reasonable performance. This means that the code generator has to be able to handle multiple threads executing and potentially generating code at the same time. It also means that a robust thread scheduler has to be able to handle the load of several threads (maybe even a few dozen) running at the same time with decent performance. Because of this I'm deciding to try to use the host threading system instead of writing my own. The code generator will need to be thread safe, but all threading and synchronization primitives will defer to the host OS. Windows, as a host, will have a much better thread scheduler than I could ever write and will enable some fancy optimizations that would otherwise be unattainable, such as pinning threads to certain CPUs and spreading out threads such that they share cores when they would have on the original hardware to more closely match the performance characteristics of the 360.
+<h3>Raw IO</h3>
+Unlike threading primitives the IO system will need to be fully emulated. This is because on a real Xbox it's reading the physical DVD where as the emulator will be sourcing from a DVD image or some other file.
+
+Most calls found in games come in two flavors:
+<h5>Low-Level IO (Io* calls)</h5>
+These kernel-level calls include such lovely methods as <a href="http://msdn.microsoft.com/en-us/library/ff548397.aspx">IoCreateDevice</a> and <a href="http://msdn.microsoft.com/en-us/library/ff548318.aspx">IoBuildDeviceIoControlRequest</a>. Since they are not usually exposed to user code my hope is that full general implementations won't be required and they will be called in predictable ways. Most likely they are used to access read-only game DVD data, so supporting custom drivers that direct requests down to the image files should be fairly easy (this is how tools on Windows that let you mount ISOs work). Once things like memory cards and harddrives are supported things get trickier, but it's not impossible and can be skipped initially.
+<h5>High-Level IO (Nt* calls)</h5>
+Roughly equivalent to the Win32 file API, <a href="http://msdn.microsoft.com/en-us/library/bb432381.aspx">NtOpenFile</a>, <a href="http://msdn.microsoft.com/en-us/library/ff567072.aspx">NtReadFile</a>, and various other functions allow for easier implementation of file IO. That said, if a full implementation of the low-level Io* routines needs to be implemented anyway it may make sense to implement these as calls onto that layer. The reason is that the Xbox DVD format uses a custom file system that will need to be built and kept in memory and calling down to the host OS file system won't really happen (although there are situations where I could it imagine it being useful, such as hot-patching resources).
+
+Just like the memory management functions are best to be shared throughout both guest and host code, so are these IO functions. Getting them implemented early means less code later on and a more robust implementation.
+
+A lot of the code for these methods can be found in ReactOS, but unfortunately they are GPL (ewww). That means some hack-tastic implementations will probably be written from scratch.
+<h3>Audio/Video</h3>
+Once more than 'hello world' applications are running things like audio and video will be required. Due to Microsoft pushing the XNA brand and libraries a lot of the technologies used by the Xbox are the same as they are on Windows. Video files are WMV and play just fine on the desktop and audio is processed through XAudio2 and that's easily mappable to the equivalent desktop APIs.
+
+That said, the initial versions of the emulator will have to try to hard to skip over all of this stuff. Games are still perfectly playable without cut-scenes or music, and it's enough to know it's possible to continue on with implementation.
+<h2>Notes</h2>
+<h3>Static Linking Verification</h3>
+As mentioned above it looks like many system methods get linked in to applications at compile-time. To quickly verify that this is happening I disassembled some games and looked at the import for KeDelayExecutionThread (I figured it was super simple). In every game I looked at there was only one caller of this method and that caller was identical. Since KeDelayExecutionThread is essentially sleep I looked at the x360_imports file and found both Sleep and RtlSleep. Sleep, being a Win32 API, is most likely identical to the signature of the desktop version so I assumed it took 1 parameter. The parent method to KeDelayExecutionThread takes 2, which means it can't be Sleep but is likely RtlSleep. The parent of this RtlSleep method takes exactly one parameter, sets the second parameter to 0, and calls down - sounds like Sleep! So then even though xboxkrnl exports Sleep, RtlSleep, and KeDelayExecutionThread the code for both Sleep and RtlSleep are compiled into the game executable instead of deferring to xboxkrnl. I have no idea why xboxkrnl exports these methods if games won't use them (it would certainly make life easier for me if they weren't there), but since it seems like no one is using them they can probably be skipped in the initial implementation.
+<h3>Patching high-level APIs</h3>
+Not all things are easier to emulate at a low level for both performance reasons and implementation quality.
+
+To see this clearly take memcpy, a C runtime method that copies large blocks of memory around. Right now this method is compiled into every game which makes it difficult to hook into, unlike CreateThread and other exports of the kernel. Of course it'll work just fine to emulate the compiled PowerPC code (as to the emulator it's just another block of instructions), but it won't be nearly as fast as it could be. I'll dive into this more in a future article, but the short of it is that an emulated memcpy will require thousands to tens of thousands of host instructions to handle what is basically a few hundred instruction method. That's because the emulator doesn't know about the semantics of the method: copy, bit for bit, memory block A to memory block B. Instead it sees a bunch of memory reads and writes and value manipulation and must preserve the validity of that data every step of the way. Knowing what the code is really trying to do (a copy) would enable some optimized host-specific code to do the work as fast as possible.
+
+The problem is that identifying blocks of code is difficult. Every compiler (and every version of that compiler), every runtime (and every version of that runtime), and every compiler/optimizer/linker setting will subtly or non-so-subtly change the code in the executable such that it'll almost always differ. What is memcpy in Game A may be totally different than memcpy in Game B, even though they perform the same function and may have originated from the same source code.
+
+There are three ways around this:
+<ul>
+	<li>Ignore it completely</li>
+	<li>Specific signature matching</li>
+	<li>Fuzzy signature matching</li>
+</ul>
+The first option isn't interesting (although it'll certainly be how the emulator starts out).
+
+Matching specific signatures requires a database of subroutine hashes that map to some internal call. When a module is loaded the subroutines are discovered, the database is queried, and matching methods are patched up. The problem here is that building that database is incredibly difficult - remember the massive number of potential variations of this code? It's a good first step and the database/patching functionality may be required for other reasons (like skipping unimplemented code in certain games/etc), but it's far from optimal.
+
+The really interesting method is fuzzy signature matching. This is essentially what anti-virus applications do when trying to detect malicious code. It's easy for virus authors to obfuscate/vary their code on each version of their virus (or even each copy of it), so very sophisticated techniques have been developed for detecting these similar blocks of code. Instead of the above database containing specific subroutine hashes a more complex representation would allow for an analysis step to extract the matching methods. This is a hard problem, and would take some time, but it'd be a ton of fun.
+<h2>What Next?</h2>
+We've now covered the 3 major areas of the emulator in some level of detail (<a href="http://www.noxa.org/blog/?p=116">CPU</a>, <a href="http://www.noxa.org/blog/?p=124">GPU</a>, and OS) and now it's getting to be time to write some code. Before starting on the actual emulator, though, one major detail needs to be nailed down: what does the code translator look like? In the next post I'll experiment with a few different ways of building a CPU emulator and detail their pros and cons.

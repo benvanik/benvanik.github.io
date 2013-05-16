@@ -1,0 +1,61 @@
+---
+tags:
+- Emulation
+- Xbox 360
+- Xenia
+meta:
+  _edit_last: "2"
+  _wp_old_slug: ""
+title: "Building an Xbox 360 Emulator, part 2: Feasibility/GPU"
+type: post
+status: publish
+published: true
+layout: post
+---
+<h2>Research</h2>
+Following up from <a href="http://www.noxa.org/blog/?p=116">last post</a>, which dove into the Xbox 360 CPU, this post will look at the GPU.
+<h2>GPU (Xenos)</h2>
+Reference: <a href="http://en.wikipedia.org/wiki/Xenos_(graphics_chip)">http://en.wikipedia.org/wiki/Xenos_(graphics_chip)</a>, <a href="http://free60.org/Xenos_(GPU)">http://free60.org/Xenos_(GPU)</a>
+<ul>
+	<li>ATI R500 equivalent at 500MHz</li>
+	<li>48 shader pipeline processors</li>
+	<li>8 ROPs - 8-32 gigasamples/second</li>
+	<li>6 billion vertices/second, 500 million triangles/second, 48 bilion shader ops/second</li>
+	<li>Shader Model 3.0+</li>
+	<li>26 texture samplers, 16 streams, 4 render targets, 4096 VS/PS instructions</li>
+	<li>VFETCH, MEMEXPORT</li>
+</ul>
+The Xenos GPU was derived from a desktop part right around the time when Direct3D 10 hardware was starting to develop. It's essentially Direct3D 9 with a few additions that enable 10-like features, such as VFETCH. Performance-wise it is quite slow compared to modern desktop parts as it was a bit too early to catch the massive explosion in generally programmable hardware.
+<h3>Performance</h3>
+The Xenos is great, but compared to modern hardware it's pretty puny. Where as the Xenon (CPU) is a bit closer to desktop processors, the GPU hardware has been moving forward at an amazing pace and it's clearly visible when comparing the specs.
+<ul>
+	<li>Modern (high-end) GPUs run at 800+MHz - many more operations/second.</li>
+	<li>Modern GPUs have orders of magnitude more shader processors (multiplying the clock speed change).</li>
+	<li>32-128 ROPs multiply out all the above even more.</li>
+	<li>Most GPUs have shader ops measured in trillions of operations per second.</li>
+	<li>All stats (for D3D10+) are way over the D3D9 version used by Xenos (plenty of render targets/etc).</li>
+</ul>
+Assuming Xenos operations could be run on a modern card there should be no problem completing them with time to spare. The host OS takes a bit of GPU time to do its compositing, but the is plenty of memory and spare cycles to handle a Xenos-maxing load.
+<h3>VFETCH</h3>
+One unique piece of Xenos is the vfetch shader instruction, available from both vertex and pixel shaders, which gives shader programs the ability to fetch arbitrary vertex data from samplers set to vertex buffers. This instruction is fairly well documented because it is usable from XNA Game Studio, and some hardcore demoscene guy actually reversed a lot of the patch up details (available <a href="http://debugmo.de/2008/03/xbox-360-gpu-update/">here</a> with a bunch of other goodies). It also looks like you can do arbitrary texture fetches (TFETCH?) in both vertex and pixel shaders - kind of tricky.
+
+Unfortunately, the ability to sample from arbitrary buffers is not something possible in Direct3D 9 or GL 2. It's equivalent to the Buffer.Load call in HLSL SM 4+ (starting in Direct3D 10).
+<h3>MEMEXPORT</h3>
+Unlike vfetch, this shader instruction is not available in XNA Game Studio and as such is much less documented. There are a few documents and technical papers out there on the net describing what it does, which as far as I can tell is similar to the RWBuffer type in HLSL SM5 (starting in Direct3D 11). It basically allows structured write of resource buffers (textures, vertex buffers, etc) that can then be read back by the CPU or used by another shader.
+
+This will be the hardest thing to fully support due to the lack of clear documentation and the fact that it's a badass instruction. I'm hoping it has some fatal flaw that makes it unusable in real games such that it won't need to be implemented...
+<h2>Emulating a Xenos</h2>
+So we know the performance exists in the hardware to push the triangles and fill the pixels, but it sounds tricky. VFETCH is useful enough to assume that every game is using it, while the hope is that MEMEXPORT is hard enough to use that no game is. There are several big open questions that need more investigation to say for sure just how feasible this project is:
+<ul>
+	<li>Is it possible to translate compiled shader code from xvs_3_0/xps_3_0 -&gt; SM4/5? (Sure... but not trivial)</li>
+	<li>Can VFETCH semantics be implemented in SM4/5? (I think yes, from what I've seen)</li>
+	<li>Can MEMEXPORT semantics (whatever they are) be implemented in SM4/5?</li>
+	<li>Special z-pass handling may be needed (seen as 'zpass' instruction) - may require replicating draw calls and splitting shaders!</li>
+</ul>
+Unlike the CPU, which <a href="http://www.noxa.org/blog/?p=116">I'm pretty confident can be emulated</a>, the Xenos is a lot trickier. Ignoring the more advanced things like MEMEXPORT for a second there is a tremendous amount of work that will need to be done to get <strong>anything</strong> rendering once the rest of the emulator is going due to the need to translate shader bytecode. The XNA GS shader compiler can compile and disassemble shaders, which is a start for reversing, but it'll be a pain.
+
+Because of all the GPGPU-ish stuff happening it seems like for at least an initial release Direct3D 11 (with feature level 10.1) is the way to go. I was really hoping to be cross-platform right away, but I'm not positive OpenGL has the necessary support.
+
+So after a day of research I'm about 70% confident I could get <strong>something</strong> rendering. I'm about 20% confident with my current knowledge that a real game that fully utilized the hardware could be emulated. If someone like the guy who reversed the GPU hardware interface decided to play around, though, that number would probably go up a lot ^_^
+<h2>Next</h2>
+The next post will talk about the operating system and the software side of the emulator.

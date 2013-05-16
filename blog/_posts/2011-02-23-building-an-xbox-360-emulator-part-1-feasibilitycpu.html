@@ -1,0 +1,64 @@
+---
+tags:
+- Emulation
+- Xbox 360
+- Xenia
+meta:
+  _edit_last: "2"
+  _wp_old_slug: ""
+title: "Building an Xbox 360 Emulator, part 1: Feasibility/CPU"
+type: post
+status: publish
+published: true
+layout: post
+---
+<h2>Questions</h2>
+Emulators are complex pieces of software and often push the bounds of what's possible by nature of having to simulate different architectures and jump through crazy hoops. When talking about the 360 this gets even crazier, as unlike when emulating an SNES the Xbox is a thoroughly modern piece of hardware and in some respects is still more powerful than most mainstream computers. So there's the first feasibility question: <strong>is there a computer powerful enough to emulate an Xbox 360?</strong> (sneak peak: I think so)
+
+Now assume for a second that a sufficiently fast emulator could be built and all the hardware exists to run it: how would one even know what to emulate? Gaming hardware is almost always completely undocumented and very special-case stuff. There are decades-old systems that are just now being successfully emulated, and some may never be possible! Add to the potential hardware information void all of the system software, usually locked away under super strong NDA, and it looks worse. It's amazing what a skilled reverse engineer can do, but there are limits to everything. <strong>Is there enough information about the Xbox 360 to emulate it?</strong> (sneak peak: I think so)
+<h2>Research</h2>
+The Xbox 360 is an embedded system, geared towards gaming and fairly specialized - but at the end of the day it's derived from the Windows NT kernel and draws with DirectX 9. The hardware is all totally custom (CPU/GPU/memory system/etc), but roughly equivalent to mainstream hardware with a 64-bit PPC chip like those shipped in Macs for awhile and an ATI video chipset not too far removed from a desktop card. Although it's not going to be a piece of cake and there are some significant differences that may cause problems, this actually isn't the worst situation.
+
+The next few posts will investigate each core component of the system and try to answer the two questions above. They'll cover the CPU, GPU, and operating system.
+<h2>CPU (Xenon)</h2>
+Reference: <a href="http://en.wikipedia.org/wiki/Xenon_(processor)">http://en.wikipedia.org/wiki/Xenon_(processor)</a>, <a href="http://free60.org/Xenon_(CPU)">http://free60.org/Xenon_(CPU)</a>
+<ul>
+	<li>64-bit PowerPC w/ in-order execution and running big-endian</li>
+	<li>3.2GHz 3 physical cores/6 logical cores</li>
+	<li>L1: 32KB instruction/32KB data, L2: 1MB (shared)</li>
+	<li>Each core has 32 integer, 32 floating-point, and 128 vector registers</li>
+	<li>Altivec/VMX128 instructions for SIMD floating-point math</li>
+	<li>~96GFLOPS single-precision, ~58GFLOPS double-precision, ~9.6GFLOPS dot product</li>
+</ul>
+<h3>PowerPC</h3>
+The PowerPC instruction set is RISC - this is a good thing, as it's got a fairly small set of instructions (relative to x86) - it doesn't make things much easier, though. Building a translator for PPC to x86-* is a non-trivial piece of work, but not that bad. There are some considerations to take into account when translating the instruction set and worrying about performance, highlighted below:
+<ul>
+	<li>Xenon is 64-bit - meaning that it uses instructions that operate on 64-bit integers. Emulating 64-bit on 32-bit instruction sets (such as x86) is not only significantly more code but also at least 2x slower. May mean x86-64 only, or letting some other layer do the work if 32-bit compatibility is a must.</li>
+	<li>Xenon uses in-order execution - great for simple/cheap/power-efficient hardware, but bad for performance. Optimizing compilers can only do so much, and instruction streams meant for in-order processors should always run faster on out-of-order processors like the x86.</li>
+	<li>The shared L2 cache, at 1MB, is fairly small considering there is no L3 cache. General memory accesses on the 360 are fast, but not as fast as the 8MB+ L3 caches commonly found in desktop processors.</li>
+	<li>PPC has a large register file at 32I/32F/128V relative to x86 at 6I/8F/8V and x86-64 at 12I/16F&amp;V - assuming the PPC compiler is fully utilizing them (or the game developers are, and it's safe to bet they are) this could cause a lot of extra memory swaps.</li>
+	<li>Being big-endian makes things slightly less elegant, as all loads and stores to memory must take this into account. Operations on registers are fine (a lot of the heavy math where perf really matters), but because of all the clever bit twiddling hacks out there memory must always be valid. This is the biggest potentially scary performance issue, I believe.</li>
+</ul>
+Luckily there is a tremendous amount of information out there on the PowerPC. There are many emulators that have been constructed, some of which run quite fast (or could with a bit of tuning). The only worrisome area is around the VMX128 instructions, but it turns out there are very few instructions that are unique to VMX128 and most are just the normal Altivec ones. (If curious, the v*128 named instructions are VMX128 - the good news is that they've been documented enough to reverse).
+<h3>Multi-core</h3>
+'6 cores' sounds like a lot, but the important thing to remember is that they are hardware threads and not physical cores. Comparing against a desktop processor it's really 3 hardware cores at 3.2GHz. Modern Core i7's have 4-6 hardware cores with 8-12 hardware threads - enough to pin the threads used on a 360 to their own dedicated hardware threads on the host.
+
+There is of course extra overhead running on a desktop computer: you've got both other applications and the host OS itself fighting for control of the execution pipeline, caches, and disk. Having 2x the hardware resources, though, should be plenty from a raw computing standpoint:
+<ul>
+	<li>SetThreadAffinityMask/SetThreadIdealProcessor and equivalent functions can control hardware threading.</li>
+	<li>The properties of out-of-order execution on the desktop processors should allow for better performance of hardware threads vs. the Xenon.</li>
+	<li>The 3 hardware cores are sharing 1MB of L2 on the Xenon vs. 8-16MB L3 on the desktop so cache contention shouldn't happen nearly as often.</li>
+	<li>Extra threads on the host can be used to offload tasks that on a real Xenon are sharing time with the game, such as decompression.</li>
+</ul>
+<h3>Raw performance</h3>
+The Xbox marketing guys love to throw around their fancy GFLOP numbers, but in reality they are not all that impressive. Due to the aforementioned in-order execution and the strange performance characteristics of a lot of the VMX128 instructions it's almost impossible to hit the reported numbers in anything but carefully crafted synthetic benchmarks. This is excellent, as modern CPUs are exceeding the Xenon numbers by a decent margin (and sometimes by several multiples). The number of registers certainly helps the Xenon out but only experimentation will tell if they are crucial to the performance.
+<h2>Emulating a Xenon</h2>
+With all of the above analysis I think I can say that it's not only possible to emulate a Xenon, but it'll likely be sufficiently fast to run well.
+
+To answer the first question above: by the time a Xenon emulation is up to 95% compatibility the target host processors will be plenty fast; in a few years it'll almost seem funny that it was ever questioned.
+
+And is there enough information out there? So far, yes. I spent a lot of nights reverse engineering the special instructions on the PSP processor and the Xenon is about as documented now. The Free60 project has a decent toolchain but is lacking some of the VMX128 instructions which will make testing things more difficult, but it's not impossible.
+
+Combined with some excellent community-published scripts for IDA Pro (which I have to buy a new license of... ack $$$ as much as a new MacBook) the publicly available information and some Redbull should be enough to get the Xbox 360 CPU running on the desktop.
+<h2>Next</h2>
+The next post will focus on the GPU, detailing its performance characteristics, features, and relation to modern desktop hardware.

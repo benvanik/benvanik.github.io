@@ -1,0 +1,34 @@
+---
+tags:
+- Coding
+- Web
+meta:
+  _edit_last: "2"
+title: node.js on cygwin
+type: post
+status: publish
+published: true
+layout: post
+---
+I've been playing with <a href="http://nodejs.org">node.js</a> a bit recently and really loving it. The only problem I have is that it doesn't run on cygwin, and my WebGL stuff doesn't yet work well on OS X, and I really don't feel like messing with VMs and all that stuff. So, now I'm trying to get it working under cygwin. Here are some of the hacks I've used:
+<ul>
+	<li>install <a href="http://cygwin.com/setup-1.7.exe">cygwin 1.7</a> as it has ipv6 support and other things needed by nodejs and its dependencies</li>
+	<li>add to /usr/include/pthread.h: int pthread_atfork(void (*prepare)(void), void (*parent)(void), void (*child)(void)); (it exists, but isn't declared)</li>
+        <li>sync to the latest master branch of nodejs</li>
+	<li>apply the <a href='http://www.noxa.org/blog/wp-content/uploads/2010/01/nodejs-on-cygwin-patches.zip'>patches</a></li>
+        <li>./configure && make install</li>
+</ul>
+
+Patch 1 is a small diff that allows the V8 build tools to identify cygwin as 'win32'. Whether or not this is the right thing to do I do not know, but it seems to work. The next bit is to replace __MINGW32__ macros with __GNUC__ macros in the Win32-specific platform code where the functionality that was being guarded is the same on both MinGW and cygwin. There are only a few minor differences.
+
+Patch 2 contains some minor changes that allow cygwin to be recognized as a platform (maybe not the right thing to do?) and to switch off the LINKFLAGS for V8 based on that. The trick to getting a successful link of node.exe is to make sure that libwinmm.a and libws2_32.a are passed to g++ AFTER libv8.a. If the ordering is any different it will fail to link. Unfortunate I don't know anything about this WAF stuff, so I just found a reasonable location and hacked the references in there. It works, but may not be 'correct'.
+
+Patch 3 adds utils.IsCygwin() to make some of the logic cleaner and fixes up the V8 and node test scripts. The node tests run, but a few fail with segfaults for some unknown (to me) reason. I suck at debugging with gdb, and until I get some crashes in my code I'm going to ignore them.
+
+These patches should be rolled up, but I don't know a clean way to do that.
+
+node.exe should appear under /usr/local/bin (with extras under /usr/local/lib and /usr/local/include). Cygwin has these paths setup by default, so you should be able to just do 'node -v' and be ready to go!
+
+If you are like me and lazy, you can download a pre-built version of <a href='http://www.noxa.org/blog/wp-content/uploads/2010/01/node-cygwin-1.7.zip'>node on cygwin 1.7</a>. Extract this to /usr/local/.
+
+<strong>Disclaimer</strong>: I have no clue what I'm doing and this is all probably very, very wrong. I haven't tested this with anything besides a few of my little node projects, and I can't support you if your stuff doesn't work.

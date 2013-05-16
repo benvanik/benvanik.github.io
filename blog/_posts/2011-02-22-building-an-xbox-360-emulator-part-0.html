@@ -1,0 +1,21 @@
+--- 
+tags: 
+- Emulation
+- Xbox 360
+- Xenia
+meta: 
+  _edit_last: "2"
+  _wp_old_slug: ""
+title: Building an Xbox 360 Emulator, part 0
+type: post
+status: publish
+published: true
+layout: post
+---
+Awhile back I worked on <a href="http://code.google.com/p/pspplayer/">the first Playstation Portable emulator</a> - it was a lot of fun and I learned a lot about embedded systems, graphics, and system design. After I got my first few commercial games running I considered the project a success and let it go dormant; the goal was not to build a full software product to run games but to use the exercise as a way to explore a really esoteric but deeply technical problem. It was surprising (and great!) to see a group of guys pick up some of my code and start work on <a href="http://www.jpcsp.org/">JCPSP</a> - they've been going now for 3 years and have made tremendous progress. It's fun to look at their screenshots and see my original UI/icons and I'm happy to have contributed to the effort, even if not directly.
+
+It's been a few years now since my last work at that level and tech has moved forward, hardware has improved, and (hopefully) I've grown a bit as well. But the craving is coming back, I'm feeling a bit rusty, and I want to again try my hand at an ambitious systems software project. It's got to be big, unproven, and interesting. When I set out on building PSP Player I didn't know if it would ever be possible to get a retail game running and I'm again looking for a challenge like that.
+
+With all that said, the past week I've been looking at what it would take to emulate an Xbox 360. I have no code yet but have done a lot of research on the system, the software, and the state of the hacker community. The advantage of starting now, so many years after the release of the console, is that projects like <a href="http://free60.org">Free60</a> have done a great job documenting the hardware and fleshing out the software toolchains. Reverse engineering of the file formats, CPU instructions, and other nasty details has progressed to the point where most areas are at least mapped out. And best of all - as far as I know - no one is looking at emulating it yet.
+
+I'm still exploring exactly how I want to proceed, but I'll be documenting my initial research here and throwing up some tools on github as I write them. Even if I never make it to running code maybe having a consolidated source of this info will make it easier for someone else to do so.

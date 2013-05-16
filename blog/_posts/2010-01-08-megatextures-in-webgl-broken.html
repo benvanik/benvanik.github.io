@@ -1,0 +1,28 @@
+--- 
+tags: 
+- Coding
+- Graphics
+- Hiranipra
+- HTML5
+- Javascript
+- Web
+- WebGL
+meta: 
+  _edit_last: "2"
+title: MegaTextures in WebGL broken
+type: post
+status: publish
+published: true
+layout: post
+---
+I decided to update my WebGL code to run against the latest spec, and also look into the Firefox compatibility issues (it runs it Chromium just fine). Turns out that the 'compatibility issue' is not a bug in Firefox, but instead a bug in Chromium!
+
+The root of the problem is the same-origin policy that browsers (should) implement. It's a security feature that says that for a given page with script running on a given domain, that page can only access privileged information from that same domain (or 'origin'). If you've played with AJAX, it's why there's a bunch of hacks for setting up proxies to grab content from other services. Fortunately in WebGL you won't hit this issue very often, as to allow the web to work the same-origin policy only restricts the page from getting information, not the user. This is what allows you to have &lt;img src="http://someotherdomain.com/foo.jpg"&gt; - the page never looks at the pixels of the image, but the user can.
+
+Unfortunately, MegaTextures relies on reading back the contents of the rendered scene to figure out what to draw next. A texture is loaded from another domain (ok) and drawn (also ok), but as soon as you draw a frame with that texture you are unable to read back the contents as you, the page, can access that privileged information. This works in Chromium today because Chromium does not check the same-origin policy in WebGL (yet). Firefox does.
+
+Just to be clear, I <strong>hate</strong> this restriction, and it always ends up biting me in the ass. It's great for security and all and as a web browser I am glad it's there, but damn is it annoying!
+
+So... what next? There are a few possible solutions. One is to just move all the content into the same domain as the running page. This is the easiest fix, as it requires no code changes. The problem is that this prevents hosting content on AWS/Akamai/etc (or in my case, seadragon.com) or even other local image farms. Another solution that requires a lot of coding would be to have two WebGL canvases and draw the feedback buffer (with no textures) into one and the real scene into the other. The complication with this is that you would need a copy of every shader and every piece of geometry in both canvases, as they are separate GL contexts and cannot share anything.
+
+Bleh. Stupid Firefox doing the right thing - I wish it would just ignore it all like Chromium does ^_^

@@ -1,0 +1,50 @@
+--- 
+tags: 
+- Graphics
+- Hiranipra
+- HTML5
+- Javascript
+- Web
+- WebGL
+meta: 
+  _edit_last: "2"
+title: Hiranipra
+type: post
+status: publish
+published: true
+layout: post
+---
+I've finally got around to working on the game I've been thinking about for a few years - mainly as an excuse to code something fun and learn something new. That way if I don't finish it (likely), at least I've gotten something from it! Right now it's HTML5/WebGL/Javascript based, and may get some multiplayer at some point. It's all open source, under some yet-to-be-determined license - assume probably MIT or BSD.
+
+There are really two kinds of games I want to make, and I'm still trying to figure out how to mash the two ideas together into one - until I do, I'm just going to experiment and see what feels best. To start, I needed some easy way to do that so I wrote a little framework to get going. I'm hosting it on github and you can find it here:
+
+<a href="http://github.com/benvanik/Hiranipra">http://github.com/benvanik/Hiranipra</a>
+
+The big bits in it right now are the WebGL helpers and a simple MegaTextures implementation. I'll be writing more about MegaTextures in a future blog post, but first I wanted to just give a quick overview of what's included so if anyone is interested in the code they aren't totally lost.
+<ul>
+	<li><a href="http://github.com/benvanik/Hiranipra/tree/dev/Shared/" target="_blank">Shared/</a> has all the framework code, with subfolders for each big area of functionality
+<ul>
+	<li>A lot is pretty simple/unimplemented/etc, so ignore it</li>
+	<li>HNProfileGraph.js draws a nifty graph fairly efficiently, making it great for visualizing timing</li>
+	<li>HNMath.js contains vector, quaternion, and matrix types as well as a matrix stack</li>
+	<li>HNFPSCamera.js is a simple FPS-style camera (x, y, z/yaw, pitch, roll)</li>
+</ul>
+</li>
+	<li><a href="http://github.com/benvanik/Hiranipra/tree/dev/Shared/GL/" target="_blank">Shared/GL/</a> is the WebGL helpers:
+<ul>
+	<li>HNGL.js does setup and works around some compatibility issues</li>
+	<li>HNGLProgram.js wraps vertex/fragment shader programs up in an easy to use form</li>
+	<li>HNGLGrid.js draws a simple grid on the XZ plane</li>
+	<li>HNGLGeometry.js keeps collections of buffers together and has some helpers for creating standard geometry types</li>
+	<li>HNGLQuadDrawer.js draws textured or colored 2D quads - it doesn't do batching yet, but will in the future</li>
+	<li>HNGLFeedbackBuffer.js handles render-to-texture and retrieval - useful for all kinds of GP-GPUish activity</li>
+</ul>
+</li>
+	<li><a href="http://github.com/benvanik/Hiranipra/tree/dev/Shared/MegaTextures/" target="_blank">Shared/MegaTextures/</a> -- see next post</li>
+	<li><a href="http://github.com/benvanik/Hiranipra/tree/dev/Experiments/" target="_blank">Experiments/</a> will have all my little experiments, mainly exercising certain parts of the framework for development and testing</li>
+</ul>
+If you grab the repo, Experiments/Template/index.html is the place to start - it's a simple 3D scene with a grid that can be hacked around on. Use WSAD/arrow keys to move the camera. Escape will toggle the frame loop on and off.
+
+All of this is only tested in the latest Chromium/Windows nightlies, as Firefox has some bugs preventing my stuff from working there and WebKit nightlies on OS X don't work for me (for some reason). If anyone can provide any help there, I'd greatly appreciate it! ^_^
+
+Also, I'm not a Javascript guy, I just do it in my spare time. If I'm doing something stupid (either in terms of design or performance), please call me out on it!

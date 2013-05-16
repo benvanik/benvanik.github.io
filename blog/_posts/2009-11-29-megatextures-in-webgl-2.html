@@ -1,0 +1,186 @@
+---
+tags:
+- Coding
+- Graphics
+- Hiranipra
+- HTML5
+- Javascript
+- Web
+- WebGL
+meta:
+  _edit_last: "2"
+title: MegaTextures in WebGL
+type: post
+status: publish
+published: true
+layout: post
+---
+Before diving into the code, I'd like to blather on a bit about what MegaTextures are, why they are so awesome, and how they work -- at least, how _I_ think they work, which could be totally wrong - I'll be prefixing everything with 'my implementation' and that way you hopefully won't think this is the only way to do this -_-
+
+Disclaimer: this was written in the middle of the night, so excuse me if it's kind of scatterbrained. It's kind of a mind dump on megatextures and my implementation, not meant to be a primary reference. Hopefully there are some interesting details in here regardless of what environment you are implementing them in.
+
+'<a href="http://en.wikipedia.org/wiki/MegaTexture" target="_blank">MegaTexture</a>' is a term coined by John Carmack, used in the id Tech 5 engine. They are commonly referred to as 'Virtual Textures' or 'Sparse Virtual Textures', but I think MegaTextures sounds awesome so that's what I use. There's a few decent bits out there describing them, their use, and some implementations:
+<ul>
+	<li><a href="http://silverspaceship.com/src/svt/" target="_blank">Sparse Virtual Textures</a> by Sean Barrett - slides, demo, code</li>
+	<li><a href="http://ati.amd.com/developer/SIGGRAPH08/Chapter02-Mittring-Advanced_Virtual_Texture_Topics.pdf" target="_blank">Advanced Virtual Texture Topics</a> (PDF) from Crytek - lots of good details</li>
+	<li>google around</li>
+</ul>
+I could make a million diagrams, but I won't, cause I'm lazy and you can look at their stuff ^_^
+
+<strong>Pros/Cons</strong>
+
+'Why do this at all?' you ask? Good question.
+
+Good:
+<ul>
+	<li>Fun</li>
+	<li>Allows for large texture spaces - like 65kx65kpx to 128kx128k</li>
+	<li>Handles texture management (loading/memory/etc) automatically</li>
+	<li>Can greatly reduce load times (as you load while you are running, not ahead of time)</li>
+</ul>
+Bad:
+<ul>
+	<li>Can be complex</li>
+	<li>Extra work at run time to slow things down</li>
+	<li>Requires texture data be in a certain format and geometry have tex coords that support it</li>
+</ul>
+In the game that I'm toying with, I want to render our solar system with a decent level of detail. That means I want some decent resolution textures on the planets, and I can't get away with procedural generation of textures because I want them to represent the real thing. Instead of trying to load several 16kx16k textures over the network (which only a few video cards support, and would still not be very high resolution), MegaTextures will take care of everything. The other advantage would be around memory use - I would only be keeping in memory the textures required to render what I'm looking at - since it's not really possible to view all the planets at once but the player may be able to switch between them quickly, this allows me to avoid keeping hundreds of mb of texture memory used up.
+
+Since I'm doing this on the web and loading several multi-megabyte textures would suck (high latency, bandwidth intensive, etc) megatextures is almost *better* for WebGL than on the desktop.
+
+<strong>The Basic Trick</strong>
+
+Split up your really big texture into a bunch of smaller tiles and create multiple levels of detail for it (also tiled). Now, determine all the tiles that are in use by the stuff on the screen and get them all. When you draw your scene use the tiles just like you would a normal texture.
+
+So, you need a way to get the tiles that are visible - for this we render the scene with a special pixel shader and then read the results back. Requesting the tiles we don't have yet is done by a queue that functions asynchronously - we have to be able to handle the case where we want to draw with some high quality tile but only have a low quality one. Next we need some way to store all the tiles in memory and a way to get the imagery out of them in the pixel shader we use to draw with.
+
+This is where I'd strongly suggest reading the above links, as I'm probably skipping over a lot as I've been knee deep in this and it's hard to tell what's obvious and not ^_^
+
+<strong>The Demo</strong>
+
+<img class="alignnone" style="border: 0px initial initial;" title="Demo Shot" src="http://www.noxa.org/blog/wp-content/uploads/2009/11/DemoShot1.jpg" alt="Demo Shot" width="538" height="535" />
+
+Run: <a href="http://noxa.org/hiranipra/Experiments/MegaTextures/index.html">http://noxa.org/hiranipra/Experiments/MegaTextures/index.html</a>
+
+NOTE: this only runs on the latest Chromium nightlies on Windows. Check out <a href="http://learningwebgl.com/blog/?p=11" target="_blank">LearningWebGL</a> for instructions on getting it set up.
+
+Use WSADQZ/arrow keys to move around the scene - hold shift to move faster. 1-5 change scenes, and ctrl-1-4 changes textures. h will toggle the debug HUD, g will toggle the grid, and delete will clear the tile cache.
+
+The graph/counter at the bottom is ms per frame - staying under 16 means 60fps.
+
+Notes: the earth texture is a bit weird, so it has a seam. The mars texture has a 1px white border around it, and you can see its seam - it's tiles are also generated wrong so they tend to shift around a bit. The sphere code, from Apple's demos, also produces some artifacts in the texture coordinates near the poles.
+
+<strong>Components of a MegaTexture System/Terminology</strong>
+<ul>
+	<li>Tiles - these are bits of the megatexture at some size - say 256x256px, and with some border pixels to prevent seams. They are addressed by their mip level and their x,y coordinates in the megatexture. So tile 5,5 on mip level 5 at 256x256px represents the region of pixels from 1280,1280 to 1536,1536 in the original imagery. I'll write [level]@[x],[y] to make things cleaner. Oh, just to confuse you, I start my levels at 0 = coarsest because it makes thinking about things easier (for me). When I say level 0, then, I mean the tile representing the entire image, and level N would be the 1:1 imagery.</li>
+	<li>A queue of tiles to be loaded - this takes a given mip level/tile x/tile y and makes network/disk/etc requests for them. The queue is prioritized in some way (currently, I do it by level - so coarser imagery will load first, causing a nice blurry-to-sharp blend).</li>
+	<li>A cache of loaded tiles - one big (like 3000+x3000+) texture in video memory. When a tile is added or removed from the cache, it's either blitted into this texture or removed from it. The nice thing about having one big texture is that it makes it easy to do state batching with geometry as all geometry shares the same texture. It also means that you have a fixed amount of memory used up at any given time.</li>
+	<li>An indirection table (lookup) that takes a given coordinate in the megatexture space to a location in the tile cache. For example, if I'm looking for tile 5@6,7, I need to know that it's at u,v 0.123,0.456 in the tile cache texture. The easiest way to represent this is a quad tree, where each node is one tile in the megatexture and each level of the quad tree is a level of detail.</li>
+</ul>
+My implementation does this:
+<ol>
+	<li>Render all the geometry to a small framebuffer with a special pixel shader that outputs mip level/tile x/tile y/texture ID in RGBA ('pass 1')</li>
+	<li>Render the entire scene with the current tile cache and indirection tables ('pass 2')</li>
+	<li>Read back the framebuffer and for each pixel get that value - for each unique level/x/y/id found, request that tile from the megatexture</li>
+	<li>If any tiles have finished loading, add them to the big tile cache texture in video memory</li>
+	<li>For those new/removed tiles in the tile cache, also update the indirection tables</li>
+</ol>
+The order of these operations doesn't really matter (in fact, you want to do them in a weird order to help prevent locking the GPU), and you can even get away with doing them totally asynchronously - in fact, I only do pass 1 (rendering level/x/y) every few frames. That's one of the cool things about this technique - it's very resilient to sloppy data.
+
+<strong>Feedback Buffer/pass 1</strong>
+
+<strong><img style="border: 0px initial initial;" title="Feedback Buffer" src="http://www.noxa.org/blog/wp-content/uploads/2009/11/DemoShotFB.jpg" alt="Feedback Buffer" width="128" height="75" /></strong>
+
+This is the render-to-texture bit that you draw the scene in to figure out what tiles you need and it's really pretty simple. Some key points:
+<ul>
+	<li>This doesn't have to be the size of your screen - in fact, it can be MUCH smaller - I currently use 1/16th of the screen pixels.</li>
+	<li>You don't have to draw it every frame - everything is tolerant to out of date structures, and the less you do this step the better.</li>
+	<li>You must only draw the objects that are using megatextures.</li>
+	<li>Try to use the smallest texture format possible.</li>
+</ul>
+The magic of this lives in the fragment shader - given a uv in the megatexture space, it needs to figure out what mip level and tile it corresponds to. Using the dFdx/dFdy functions in GL (part of the<a href="http://www.khronos.org/registry/gles/extensions/OES/OES_standard_derivatives.txt" target="_blank">OES_standard_derivatives</a> extension in GLES2) you can get the mip level, and it's simple arithmetic to get the tile x,y. You could just write out the level/uv and do the uv-&gt;tilexy on the CPU, but the GPU is good at this kind of stuff (and Javascript is NOT) so you may as well let it do it.
+
+Once you have your objects rendered you need to get the data back. You can use glGetTexture in GL, but GLES doesn't have that so you are stuck with the slower glReadPixels call. Once you have the bytes of the texture back in system memory you can get to work.
+
+Iterate over each pixel in the buffer reading out the level/tilexy you wrote in the pixel shader. This is by far the slowest part of the process in WebGL, and one of the reasons why scaling the feedback buffer down is so important - fewer pixels to process is always a good thing. As many tricks as you can use to prevent expensive per-pixel work here are good. I've only started to play with them (like keeping tracking of the last pixel, assuming that the next pixel will be the same tile, etc).
+
+One feature I support is the ability to have multiple megatextures in use in a single frame. To support this, I write out mip level/tile x/tile y/megatexture id, where the id is some unique value. This allows me to have my lookup differentiate between textures. The main reason for this is to ease content creation and expand the virtual texture space - instead of being limited to a single texture that is up to 65kx65k, I can now have up to 256 65kx65k textures. Also, I don't have to pack all textures into a single texture - I can have, for example, each planet be its own texture, and have all starships textures be one megatexture, etc.
+
+Another important detail here is the format of the feedback buffer. On desktop GL the easy way out is to use GL_FLOAT (32bits per channel). The good part about this is that it allows larger textures (as you can address more tiles) and is easier to work with (as it's all just floats that you can cast to/from integers). It's bad, though, because you are sending 16 bytes per pixel for an entire feedback buffer, and (more importantly) floating point textures are not supported in GLES. Because of this, I use RGBA GL_UNSIGNED_BYTE textures, which limits me to 4 values of 0-255 per pixel. Nice that I need exactly 4 values, then: level/x/y/id! This does, however, limit me to 256 levels (not a problem - that'll never happen) and 256 tiles on either side of the megatexture (a bigger, lamer issue). I use the value of 0 in the alpha channel (the megatexture id) to denote an invalid pixel - this means I can only have 255 megatextures in use in a frame, which (hopefully) will never happen.
+
+NOTE: because of a bug in Firefox with bindFramebuffer, it's not possible to render-to-texture, which means no feedback buffer and no pass 1. That means no megatextures there -- yet. Hopefully the bug will get fixed soon!
+
+In the demo, you can see this in the upper left - you can tell if you move around a bit that it's updated slower than the main view as it lags behind a bit. The colors outputted are meant to be read back, not look pretty, so often times you'll just see black.
+
+<strong>The Tile Cache</strong>
+
+<strong><img style="border: 0px initial initial;" title="Tile Cache" src="http://www.noxa.org/blog/wp-content/uploads/2009/11/DemoShotTC.jpg" alt="Tile Cache" width="132" height="129" /></strong>
+
+I use one big texture for my cache that is some number of tiles of a fixed size - so if my tile size is 256x256, I measure my cache in the number of tiles along a side - 8 would be 8x8 (256) tiles, or 8*256x8*256=2048x2048px (12-16MB). The number of tiles you should use is dependent on the number of unique tiles you think you'll be drawing with on any given frame. For small screen sizes where you know you can't possibly see that much or times when you know you've got great texture space locality, the smaller the cache the better. When you don't know any of that, though, go as big as you can. I've picked 12x12 tiles and it seems to work well.
+
+You want to be smart about managing your cache - don't throw out tiles unless you absolutely have to (you're full), and when you have to throw out the least important ones. I use a simple LRU scheme and when the cache is full and I need to evict some tiles I choose the ones that were drawn the longest ago. This can lead to thrashing, which I don't handle, so good luck ^_^ The id guys mention that you can adjust your LOD bias here to drop the detail required, reducing the number of tiles you need, preventing the thrashing.
+
+Adding/removing tiles can be expensive. There are a bunch of ways to do it, and you want to be smart. Common ways include:
+<ul>
+	<li>Keep a system-memory copy of the texture and memcpy the tile over, then reupload the entire thing - this is dumb, don't do it</li>
+	<li>glTexSubImage2D (texSubImage2D in WebGL) to upload a portion of the data - unfortunately this is not implemented in WebKit/Chrome, so it's a no-go for now</li>
+	<li>Render-to-texture - set up the tile cache texture as the render target and draw a 2D quad with the tile texture - this is complex and potentially slow (as it requires uploading the tile texture, binding the framebuffer, changing the viewport, etc)</li>
+</ul>
+I'm currently using the render-to-texture approach because of the mentioned texSubImage2D issues, but there are some nice side-effects. For example, if your tile imagery is not a perfect match for your tile size, you can get scaling here for 'free' as the GPU is doing it all. It's also all GPU-GPU work, so in theory you aren't stalling things (much).
+
+This is the next thing down below the feedback buffer in the demo. Since it's an LRU, you'll often see tiles that may not be getting drawn. You can hit the delete key to clear it and see only those that are required fill it up.
+
+<strong>Indirection Tables/pass 2</strong>
+
+<strong><img style="border: 0px initial initial;" title="Indirection Texture" src="http://www.noxa.org/blog/wp-content/uploads/2009/11/DemoShotIT.jpg" alt="Indirection Texture" width="127" height="62" /></strong>
+
+This was the most confusing topic for me at first (and still is, a bit -_-) and as such my implementation seems to be a bit different than most peoples. The concept is always the same, though: you are in your fragment shader and need the pixel of imagery to draw. You know your level/tile x/tile y (as you can do the same math you did in pass 1 while building the feedback buffer) and you have your tile cache texture, now you just need a way to get from one to the other --&gt; indirection tables/textures!
+
+I've seen people do this many different ways, the most common being a texture that is a linked list of lookups. In your fragment shader you hash your level/x/y to some value and then sample from the indirection texture. The value of that is then used to sample again, and again, and again. Finally you end up with the uv of your tile in the tile cache and can sample the pixel.
+
+My implementation does things like so: I have a quad tree in memory that represents the tiles currently loaded from the megatexture, and then I have a texture in video memory that is a mirror of this quad tree with each pixel representing a tile. I fill in all the pixels in the image with the value of the highest level of detail imagery present. So say I have 4 levels of detail in my image and only have level 0 tile 0,0 loaded - I'd fill in all 4 levels, each pixel, with the tile cache uv of 0@0,0. If I then loaded tile 4@45,46 I would fill in that pixel with the uv in the tile cache, but all the rest would remain 0@0,0. This method requires a bit of pixel manipulation (potentially a lot) to get things right, but has one major advantage: the fragment shader is dead simple - no if()s and no for()s, and only one sample of the indirection texture per pixel.
+
+So I have this indirection texture - actually multiple - one for each megatexture that's loaded - it needs to be updated some how. The advantage of keeping an memory copy of the quad tree is that it's easy to update regions of the bitmap when tiles are added or removed. When that happens I update the pixels and then re-upload the texture. Usually the textures are smallish (as above I'm limited to 256x256 tiles at the finest level of detail, which means I only need a bit more than that to store the indirection texture). By far, this is one of the most expensive parts of the megatextures system (especially in Javascript), as it's a lot of pixel manipulation and chatty texture uploads. I've been thinking of some ways to make this better, but haven't had a chance to try them yet.
+
+Right now I only use 3 channels in the texture - RGB = tile cache x, tile cache y, scaling factor. The xy are the tile coordinates in the tile cache of the tile to use - like tile xy in texture space, these need to be multiplied out by the tile size to find out the actual uv coordinates. I do this because otherwise 256x256 is not enough to address the potentially 4kx4k tile cache texture. The scaling factor is the multiple difference the tile imagery is from the level of the tile sampled. For example, if like above I only had 0@0,0 and I sampled a tile on level 4, the level 0 tile is 2^4 pixels smaller, and as such would need to be scaled up 4x when used. This is tricky arithmetic, and luckily all in the shader where the math is fast.
+
+In the demo you can see one per megatexture right below the tile cache. Like the feedback buffer the colors are for the fragment shader, not you, so it's sometimes a bit hard to see. It's setup so that level 0 is on the left and it goes up a level as it goes to the right. You should be able to quickly see that it's a quad tree.
+
+<strong>A Note on Borders</strong>
+
+Because the sampling from the tile cache is not nearest neighbor, you end up getting inexact samples. This leads to tiles bleeding into each other when sampled. This is a big deal, as you often have imagery that is totally unrelated next to each other, and you will see seams in output. The solution to this is to include a few pixels of overlap in each tile. I use 1 right now, because that's enough for the filtering I'm using. This means that for every tile there is a 1px border around it that is the data from the next tile in each direction. To keep my tiles nicely sized, I shrink in instead of expand out - that means my tiles are really 254x254 with a 1px border, so the images are 256x256px with 254x254 of useful imagery. If you wanted larger tiles, you'd go 510x510 with 1px border making 512x512 tiles.
+
+<strong>The Code</strong>
+
+Enough talking, look at the code! You can find the relevant bits here:
+
+Core MegaTexture code: <a href="http://github.com/benvanik/Hiranipra/tree/dev/Shared/MegaTextures/">http://github.com/benvanik/Hiranipra/tree/dev/Shared/MegaTextures/</a>
+
+Feedback buffer: <a href="http://github.com/benvanik/Hiranipra/blob/dev/Shared/GL/HNGLFeedbackBuffer.js">http://github.com/benvanik/Hiranipra/blob/dev/Shared/GL/HNGLFeedbackBuffer.js</a>
+
+Test code: <a href="http://github.com/benvanik/Hiranipra/blob/dev_benvanik/Experiments/MegaTextures/index.html">http://github.com/benvanik/Hiranipra/blob/dev/Experiments/MegaTextures/index.html</a>
+
+See my previous post for an overview of the framework this is built on.
+
+This is still a work in progress implementation, but it does (pretty much) work.
+<ul>
+	<li>Supports multiple megatextures at once</li>
+	<li>Easy to sample from megatextures in custom fragment shaders (so you can do whatever fancy effects you want - just replace your texture2D sample with MTBilinearSample/MTTrilinearSample)</li>
+	<li>Up to 65kx65k (256x256px tiles x 256x256) textures - or 128kx128k if you use 512x512px tiles</li>
+	<li>Pretty fast (on my 16-core MacPro ^_^)</li>
+	<li>Works only in Chromium nightlies on Windows (due to Firefox bugs and unknown weirdness in WebKit/OSX)</li>
+	<li>Potential support for procedurally generated tiles once WebKit/Chrome can do texture uploads from ImageData</li>
+	<li>Can load megatextures from DeepZoom images - there's tooling out there for taking large images and generating the appropriate tile pyramid and ways of hosting it efficiently</li>
+	<li>Everything is supported with OpenGL ES 2 - including the shaders (as long as the standard_derivatives extension is supported) - this means that once the browsers start verifying the spec/parameters/etc this should still work</li>
+</ul>
+If you try this out, please let me know if you notice any bugs/potential fixes for compatibility issues/etc.
+
+<strong>TODO</strong>
+
+It'd be neat to support blending of the tiles as they come in. I've heard of some people doing this by actually redrawing the tiles into the tile cache each frame - that's crazy. I was thinking it'd be possible to support by having a value in the indirection table that represented an alpha - the fragment shader would then check to see if alpha &lt;1, and if so sample from the coarser level and blend them together - kind of like the trilinear filtering works. That would mean just modifying the indirection table each frame, not the tile cache.
+
+Right now there are glitches if there are no tiles for a megatexture present - you can see this in the demo if you only have mars in view for awhile and then point towards the earth - it'll be orange for a second. This needs some fixup. Maybe some extra fragment shader logic to tell when nothing is present.
+
+I'd like to show off normal maps and other things with this - for that I'd need some meshes loaded with actual data, not just spheres and quads.
+
+There's still probably some performance that could be gained here, but I'm not sure how much. Most of the time is spent uploading textures.

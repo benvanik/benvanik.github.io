@@ -1,0 +1,206 @@
+--- 
+tags: 
+- Coding
+- Emulation
+- Xbox 360
+- Xenia
+meta: 
+  _edit_last: "2"
+title: "Building an Xbox 360 Emulator, part 5: XEX Files"
+type: post
+status: publish
+published: true
+layout: post
+---
+I thought it would be useful to walk through a XEX file and show what's all in there so that when I continue on and start talking about details of the loader, operating system, and CPU things make a bit more sense. There's also the selfish reason: it's been 6 months since I last looked at this stuff and I needed to remind myself ^_^
+<h2>What's a XEX?</h2>
+XEX files, or more accurately XEX2 files, are signed/encrypted/compressed content wrappers used by the 360. 'XEX' = <strong>X</strong>box <strong>EX</strong>ecutable, and pretty close to 'EXE' - cute, huh? They can contain resources (everything from art assets to configuration files) and executable files (Windows PE format .exe files), and every game has at least one: default.xex.
+
+When the Xbox goes to launch a title, it first looks for the default.xex file in the game root (either on the disc or hard drive) and reads out the metadata. Using a combination of a shared console key and a game-specific key, the executable contained within is decrypted and verified against an embedded checksum (and sometimes decompressed). The loader uses some extra bits of information in the XEX, such as import tables and section maps, to properly lay out the executable in memory and then jumps into the code.
+
+Of interest to us here is:
+<ul>
+	<li>What kind of metadata is in the XEX?</li>
+	<li>How do you get the executable out?</li>
+	<li>How do you load the executable into memory?</li>
+	<li>How are imports resolved?</li>
+</ul>
+The first part of this document will talk about these issues and then I'll follow on with a quick IDA walkthrough for reversing a few functions and making sure the world is sane.
+<h2>Getting a XEX File</h2>
+<h3>Disc Image</h3>
+There are tons of ways to get a working disc image, and I'm not going to cover them here. The information is always changing, very configuration dependent, and unfortunately due to stupid US laws in a grey (or darker) area. Google will yield plenty of results, but in the end you'll need either a modded 360 or a very specific replacement drive and a decent external SATA adapter (cheap ones didn't seem to work for me).
+
+The rest of this post assumes you have grabbed a valid and legally-owned disc image.
+<h3>Extracting the XEX</h3>
+Quite a few tools will let you browse around the disc filesystem and grab files, but the most reliable and easy to use that I've found is <a href="http://gael360.free.fr/wx360.php" target="_blank">wx360</a>. There are some command line ones out there, FUSE versions for OSX/etc, and some 360-specific disc imaging tools can optionally dump files. If you want some code that does this in a nice way, wait until I open up my github repo and look XEGDFX.c.
+
+You're looking for 'default.xex' in the root of the disc. For all games this is where the game metadata and executable code lies. A small number of games I've looked at have additional XEX files, but they are often little helper libraries or just resources with no actual code.
+
+Once you've got the XEX file ready it's time to do some simple dumping of the contents.
+<h2>Peeking into a XEX</h2>
+The first tool you'll want to use is xorloser's <a href="http://forums.xbox-scene.com/index.php?showtopic=642051" target="_blank">XexTool</a>. Grab it and throw both it and the included x360_imports.idc file into a directory with your default.xex.
+<pre>02/25/2011  10:10 AM         3,244,032 default.xex
+12/04/2010  12:25 AM           173,177 x360_imports.idc
+12/07/2010  11:29 PM           185,856 xextool.exe</pre>
+&nbsp;
+XexTool has a bunch of fun options. Start off by dumping the information contained in default.xex with the -l flag:
+<pre>D:\XexTutorial&gt;xextool.exe -l default.xex
+XexTool v6.1  -  xorloser 2006-2010
+Reading and parsing input xex file...
+
+Xex Info
+  Retail
+  Compressed
+  Encrypted
+  Title Module
+  XGD2 Only
+  Uses Game Voice Channel
+  Pal50 Incompatible
+  Xbox360 Logo Data Present
+
+Basefile Info
+  Original PE Name:   [some awesome game].pe
+  Load Address:       82000000
+  Entry Point:        826B8B48
+  Image Size:           B90000
+  Page Size:             10000
+  Checksum:           00000000
+  Filetime:           4539666C - Fri Oct 20 17:14:36 2006
+  Stack Size:            40000
+.... a lot more ....</pre>
+&nbsp;
+You'll find some interesting bits, such as the encryption keys (required for decrypting the contained executable), basic import information, contained resources, and all of the executable sections. Note that the XEX container has the information about the sections, not the executable. We will see later that most of the PE header in the executable is bogus (likely valid pre-packaging, but certainly not after).
+<h3>Extracting the PE (.exe)</h3>
+Next up we will want to crack out the PE executable contained within the XEX by using the '-b' flag. Since we will need it later anyway, also add on the '-i' flag to output the IDC file used by IDA.
+<pre>D:\XexTutorial&gt;xextool -b default.exe -i default.idc default.xex
+XexTool v6.1  -  xorloser 2006-2010
+Reading and parsing input xex file...
+Successfully dumped basefile idc to default.idc
+Successfully dumped basefile to default.exe
+
+Load basefile into IDA with the following details
+DO NOT load as a PE or EXE file as the format is not valid
+File Type:       Binary file
+Processor Type:  PowerPC: ppc
+Load Address:    0x82000000
+Entry Point:     0x826B8B48</pre>
+&nbsp;
+Take a second to look at the output and note the size difference in the input .xex and output .exe:
+<pre>02/25/2011  10:10 AM         3,244,032 default.xex
+08/12/2011  11:04 PM        12,124,160 default.exe</pre>
+&nbsp;
+In this case the XEX file was both encrypted and compressed. When XexTool spits out the .exe it not only decompresses it, but also pads in some of the data that was stripped when it was originally shoved into the .xex. Thinking about rotational speeds of DVDs and the data transfer rate, a 4x compression ratio is pretty impressive (and it makes me wonder why all PE's aren't packed like this...).
+<h3>PE Info</h3>
+You can try to peek at the executable but the text section is PowerPC and most Microsoft tools shipped to the public don't support even looking at the headers in a PPC PE. Luckily there are some 3rd party tools that do a pretty good job of dumping most of the info. Using <a href="http://www.wheaty.net/downloads.htm" target="_blank">Matt Pietrek's pedump</a> you can get the headers:
+<pre>D:\XexTutorial&gt;pedump /B /I /L /P /R /S default.exe &gt; default.txt</pre>
+&nbsp;
+Check out the results and see the PE headers. Note that most of them are incorrect and (I imagine) completely ignored by the real 360 loader. For example, the data directories and section table have incorrect addresses, although their sizes are fairly accurate. During XEX packing a lot of reorganizing and alignment is performed, and some sections are removed completely.
+
+The two most interesting bits in the resulting file from a reversing perspective are the imports table and the runtime function table. The imports table data referenced here is pretty bogus, and instead the addresses from the XEX should be used. The Runtime Function Table, however, has valid addresses and provides a useful resource: addresses and lengths of most methods in the executable. I'll describe both of these structures in more detail later.
+<h2>Loading a XEX</h2>
+[I'll patch this up once I open the github repo, but for future reference XEXEX2LoadFromFile, XEXEX2ReadImage, and XEPEModuleLoadFromMemory are useful] Now that's possible to get a XEX and the executable it contains, let's talk about how a XEX is loaded by the 360 kernel.
+<h3>Sections</h3>
+Take a peek at the '-l' output from XexTool and down near the bottom you'll see 'Sections'. What follows is a list of all blocks in the XEX, usually 64KB chunks (0x10000), and their type:
+<pre>Sections
+    0) 82000000 - 82010000 : Header/Resource
+    1) 82010000 - 82020000 : Header/Resource
+-- snip --
+   12) 820C0000 - 820D0000 : Header/Resource
+   13) 820D0000 - 820E0000 : Header/Resource
+   14) 820E0000 - 820F0000 : Code
+   15) 820F0000 - 82100000 : Code
+-- snip --
+  108) 826C0000 - 826D0000 : Code
+  109) 826D0000 - 826E0000 : Code
+  110) 826E0000 - 826F0000 : Data
+  111) 826F0000 - 82700000 : Data
+.... and many more ....</pre>
+&nbsp;
+Usually they seem to be laid out as read-only data, code, and read-write data, and always grouped together. All of the fancy sections in the PE are distilled down to these three types, likely due to the fact that the 360 has these three memory protection modes. Everything is in 64KB chunks because that is the allocation granularity for the memory pages. Those two things together explain why the headers in the PE don't match up to reality - the tool that takes .exe -&gt; .xex and does all of this stuff never fixes up the data after it butchers everything. When it comes to actually loading XEX's, all of these transformations actually make things easier. Ignoring all of the decryption/decompression/checksum craziness, loading a XEX is usually as simple as a mapped file read/memcpy. Much, much faster than a normal PE file, and a very smart move on Microsoft's part.
+<h3>Imports</h3>
+Both the XEX and PE declare that they have imports, but the XEX ones are correct. Stored in the XEX is a multi-level table of import library (such as 'xboxkrnl.exe') where each library is versioned and then references a set of import entries. You can see the import libraries in the XexTool output:
+<pre>Import Libraries
+    0) xboxkrnl.exe   v2.0.3529.0  (min v2.0.2858.0)
+    1) xam.xex        v2.0.3529.0  (min v2.0.2858.0)</pre>
+&nbsp;
+It's way out of scope here to talk about <strong>how</strong>the libraries are embedded, but you can check out XEXEX2.c in the XEX_HEADER_IMPORT_LIBRARIES bit and later on in the XEXEX2GetImportInfos method for more information. In essence, there is a list of ordinals exported by the import libraries and the address in the loaded executable at where the resolved import should be placed. For example, there may be an import for ordinal 0x26A from 'xboxkrnl.exe', which happens to correspond to 'VdRetrainEDRAMWorker'. The loader will place the real address of 'VdRetrainEDRAMWorker' in the location specified in the import table when the executable is loaded.
+
+The best way to see the imports of an executable (without writing code) is to look at the default.idc file dumped previously by XexTool with the '-i' option. For each import library there will be a function containing several SetupImport* calls that give the location of the import table entry in the executable, the location to place the value in, the ordinal, and the library name. Cross reference x360_imports.idc to find the ordinal name and you can start to decode things:
+<pre>SetupImportFunc(0x8200085C, 0x826BF554, 0x074, "xboxkrnl.exe"); --&gt; KeInitializeSemaphore
+SetupImportFunc(0x82000860, 0x826BF564, 0x110, "xboxkrnl.exe"); --&gt; ObReferenceObjectByHandle
+SetupImportFunc(0x82000864, 0x826BF574, 0x1F7, "xboxkrnl.exe"); --&gt; XAudioGetVoiceCategoryVolumeChangeMask</pre>
+&nbsp;
+An emulator would perform this process (a bit more efficiently than you or I) and resolve all imports to the corresponding functions in the emulated kernel.
+<h3>Static Libraries</h3>
+An interesting bit of information included in the XEX is the list of static libraries compiled into the executable and their version information:
+<pre>Static Libraries
+    0) D3DX9          v2.0.3529.0
+    1) XGRAPHC        v2.0.3529.0
+    2) XONLINE        v2.0.3529.0
+.... plus a few more ....</pre>
+&nbsp;
+In the future it may be possible to build a library of optimized routines commonly found in these libraries by way of fingerprint and version information. For example, being able to identify specific versions of memcpy or other expensive routines could allow for big speed-ups.
+<h2>IDA Pro</h2>
+That's about it for what can be done by hand - now let's take a peek at the code!
+<h3>Getting Setup</h3>
+I'm using IDA Pro 6 with <a href="http://forums.xbox-scene.com/index.php?showtopic=642051" target="_blank">xorloser's PPCAltivec plugin</a> (required) and <a href="http://forums.xbox-scene.com/index.php?showtopic=725259&amp;mode=threaded&amp;pid=4762404" target="_blank">xorloser's Xbox360 Xex Loader plugin</a> (optional, but makes things much easier). If you don't want to use the Xex Loader plugin you can load the .exe and then run the .idc file to get pretty much the same thing, but I've had things go much smoother when using the plugin.
+
+Go and grab a copy of <a href="http://www.hex-rays.com/idapro/" target="_blank">IDA Pro 6</a>, if you don't have it. No really, go get it. It's only a foreign money wire of a thousand dollars or two. Worth it. It takes a few days, so I'll wait...
+
+Install the plugins and fire it up. You should be good to go! Close the wizard window and then drag/drop the default.xex file into the app. It'll automatically detect it as a XEX, don't touch anything, and let it go. Although you'll start seeing things right away I've found it's best to let IDA crunch on things before moving around. Wait until 'AU: idle' appears in the bottom left status tray.
+
+[caption id="attachment_173" align="alignnone" width="272" caption="XEX Import Dialog"]<a href="http://www.noxa.org/blog/wp-content/uploads/2011/08/Shot1.png"><img class="size-medium wp-image-173" title="IDA Pro XEX Import" src="http://www.noxa.org/blog/wp-content/uploads/2011/08/Shot1-272x300.png" alt="" width="272" height="300" /></a>[/caption]
+
+[caption id="attachment_174" align="alignnone" width="300" caption="IDA Pro Initial View"]<a href="http://www.noxa.org/blog/wp-content/uploads/2011/08/Shot2.png"><img class="size-medium wp-image-174" title="IDA Pro Initial View" src="http://www.noxa.org/blog/wp-content/uploads/2011/08/Shot2-300x187.png" alt="" width="300" height="187" /></a>[/caption]
+<h3>Navigating</h3>
+XEX files traditionally have the following major elements in this order (likely because they all come from the same linker):
+<ol>
+	<li>Import tables - a bunch of longs that will be filled with the addresses of imports on load</li>
+	<li>Generic read-only data (string tables, constants/etc)</li>
+	<li>Code (.text)</li>
+	<li>Import function thunks (at the end of .text)</li>
+	<li>Random security code</li>
+</ol>
+IDA and xorloser's XEX importer are nice enough to organize most things for you. Most functions are found correctly (although a few aren't or are split up wrong), you'll find the __savegpr/__restgpr blocks named for you, and all import thunks will be resolved.
+<h2>The Anatomy of an Xbox Executable</h2>
+I'm not going to do a full walkthrough of IDA (you either know already or can find it pretty easily), but I will show an example that reveals a bit about what the executables look like and how they function. It's fun to see how much you can glean about the tools and processes used to build the executable from the output!
+<h3>Reversing Sleep</h3>
+Starting simple and in a well-known space is generally a good idea. Scanning through the import thunks in my executable I noticed 'KeDelayExecutionThread'. That's an interesting function because it is fairly simple - the perfect place to get a grounding. Almost every game should call this, so look for it in yours (your addresses will differ).
+<pre>.text:826BF9B4 KeDelayExecutionThread:                 # CODE XREF: sub_826B9AF8+5Cp
+.text:826BF9B4                 li      %r3, 0x5A
+.text:826BF9B8                 li      %r4, 0x5A
+.text:826BF9BC                 mtspr   CTR, %r11
+.text:826BF9C0                 bctr</pre>
+&nbsp;
+All of the import thunks have this form - I'm assuming the loader overwrites their contents with the actual jump calls and none of the code here is used. Time to check out the documentation. MSDN shows <a href="http://msdn.microsoft.com/en-us/library/ff551986" target="_blank">KeDelayExecutionThread</a> as taking 3 arguments and returning one:
+<pre>NTSTATUS KeDelayExecutionThread(
+  __in  KPROCESSOR_MODE WaitMode,
+  __in  BOOLEAN Alertable,
+  __in  PLARGE_INTEGER Interval
+);</pre>
+&nbsp;
+For a function as core as this it's highly likely that the signature has not changed between the documented NT kernel and the 360 kernel. This is not always the case (especially with some of the more complex calls), but is a good place to start. Right click and select 'Set function type' (or hit Y) and enter the signature:
+<pre>int __cdecl KeDelayExecutionThread(int waitMode, int alertable, __int64* interval)</pre>
+&nbsp;
+Because this is a kernel (Ke*) function it's unlikely that it is being called by user code directly. Instead, one of the many static libraries linked in is wrapping it up (my guess is 'xboxkrnl'). IDA shows that there is one referencing routine - almost definitely the wrapper. Double click it to jump to the call site.
+
+Now we are looking at a much larger function wrapping the call to KeDelayExecutionThread:
+
+[caption id="attachment_175" align="alignnone" width="300" caption="IDA Pro View of KeDelayExecutionThread wrapper"]<a href="http://www.noxa.org/blog/wp-content/uploads/2011/08/Shot3.png"><img class="size-medium wp-image-175" title="IDA Pro View" src="http://www.noxa.org/blog/wp-content/uploads/2011/08/Shot3-300x187.png" alt="" width="300" height="187" /></a>[/caption]
+
+Tracing back the parameters to KeDelayExecutionThread, waitMode is always constant but both interval and alertable come from the parameters to the function. Note that argument 0 ends up as 'interval' in KeDelayExecutionThread, has special handling for -1, and has a massively large multiplier on it (bringing the interval from ms to 100-ns).  Down near the end you can see %r3 being set, which indicates that the function returns a value. From this, we can guess at the signature of the function and throw it into the 'Set function type' dialog:
+<pre>int __cdecl DelayWrapper(int intervalMs, int alertable)</pre>
+&nbsp;
+We can do one better than just the signature, though. This has to be some Microsoft user-mode API. Thinking about what KeDelayExecutionThread does and the arguments of this wrapper, the first thought is 'Sleep'. Win32 Sleep only takes one argument, but SleepEx takes two and matches our signature exactly!
+
+Check out the documentation to confirm: <a href="http://msdn.microsoft.com/en-us/library/ms686307" target="_blank">MSDN SleepEx</a>. Pretty close to what we got, right?
+<pre>DWORD WINAPI SleepEx(
+  __in  DWORD dwMilliseconds,
+  __in  BOOL bAlertable
+);</pre>
+&nbsp;
+Rename the function (hit N) and feel satisfied that you now have one of hundreds of thunks completed!
+
+[caption id="attachment_203" align="alignnone" width="300" caption="Reversed SleepEx"]<a href="http://www.noxa.org/blog/wp-content/uploads/2011/08/Shot4.png"><img class="size-medium wp-image-203" title="IDA Pro SleepEx View" src="http://www.noxa.org/blog/wp-content/uploads/2011/08/Shot4-300x187.png" alt="" width="300" height="187" /></a>[/caption]
+&nbsp;
+<p>Now do all of the rest, and depth-first reverse large portions of the game code. You now know the hell of an emulator author. Hackers have it easy - they generally target very specific parts of an application to reverse... when writing an emulator, however, breadth often matters just as much as depth x_x
