@@ -1,5 +1,21 @@
 {% include header.html %}
 
+<div class="post-header">
+  <h1>{{ page.title }}<small>{{ page.date | date: "%B %d, %Y"}}</small></h1>
+  <div class="post-header-info">
+    <div class="post-header-info-left">
+      <small>
+        {% for tag in page.tags | sort %}
+          {{ tag }},
+        {% endfor %}
+        etc
+      </small>
+    </div>
+    <div class="post-header-info-right"></div>
+    <div class="post-header-tail"></div>
+  </div>
+</div>
+
 {{ content | emojify }}
 
 {% include comments.html %}

@@ -9,6 +9,12 @@ Linux/OSX only. Maybe.
 $ ./setup.sh
 ```
 
+## Developing
+
+```
+$ jekyll serve --watch
+```
+
 ## Publishing
 
 ```

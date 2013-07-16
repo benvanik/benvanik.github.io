@@ -1,5 +1,5 @@
 ---
-title: if you have a large enough codebase, any class of error that is syntactically legal probably exists there
+title: On Static Analysis
 tags:
 - coding
 layout: post
