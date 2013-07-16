@@ -4,9 +4,9 @@ title: projects
 layout: default
 ---
 
-Project list
+Project list:<br/>
 {% for project in site.categories.projects %}
-{{ project.url }}<br/>
+<a href="{{ project.url }}">{{ project.title }}</a><br/>
 {% endfor %}
 
 <!--
