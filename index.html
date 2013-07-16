@@ -2,10 +2,113 @@
 title: home
 layout: default
 category: homepage
----
-Hello!
 
-:wink:
+history:
+-
+  name: University of Central Florida
+  logo: /assets/images/ucf.png
+  link: http://www.ucf.edu
+  start: 2002
+  end: 2007
+-
+  name: Phanfare
+  logo: /assets/images/phanfare.png
+  link: http://www.phanfare.com/
+  start: 2004
+  end: 2008
+-
+  name: Microsoft Live Labs
+  logo: /assets/images/microsoft-live-labs.png
+  link: http://en.wikipedia.org/wiki/Microsoft_Live_Labs
+  start: 2008
+  end: 2011
+  teams:
+    -
+      name: Seadragon
+      icon: /assets/images/microsoft-seadragon.png
+      link: http://en.wikipedia.org/wiki/Seadragon_Software
+-
+  name: Google Seattle
+  logo: /assets/images/google-seattle.png
+  link: http://www.google.com/about/locations/seattle-kirkland/
+  start: 2011
+  end: current
+  teams:
+    -
+      name: Picnik
+      icon: /assets/images/google-picnik.png
+      link: http://www.picnik.com
+    -
+      name: Maps
+      icon: /assets/images/google-maps.png
+      link: http://www.google.com/maps/about/explore/
+---
+
+<div class="header visible-phone">
+  phone
+</div>
+<div class="header hidden-phone">
+  tablet/desktop
+</div>
+
+<div class="me">
+  <div class="hero-unit">
+    <h1>Heading</h1>
+    <p>Tagline</p>
+    <p>
+      <a class="btn btn-primary btn-large">
+        Learn more
+      </a>
+    </p>
+  </div>
+</div>
+
+<hr>
+<br/>
+
+<div class="work-history">
+  <div class="row">
+    {% for place in page.history %}
+      <div class="span3 history-place">
+        <div class="history-logo">
+          <a target="_blank" href="{{ place.link }}"><img src="{{ place.logo }}" title="{{ place.name }}" width="150"></a>
+          <span class="label label-inverse">{{ place.start }}-{{ place.end }}</span>
+        </div>
+        {% if place.teams | size > 0 %}
+          {% for team in place.teams %}
+            <div class="history-team">
+              <a target="_blank" href="{{ team.link }}"><img src="{{ team.icon }}">{{ team.name }}</a>
+            </div>
+          {% endfor %}
+        {% endif %}
+        <div class="history-divider visible-desktop">
+          {% if place != page.history.last %}⇝{% else %}⇢{% endif %}
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+</div>
+
+<hr>
+
+<!--
+<div class="infoBox">
+  <div class="profileBlock">
+    <div class="profileTodo">
+      <img src="/assets/images/todo.gif">
+    </div>
+    <span class="profileName">
+      Ben Vanik
+    </span>
+    <br>
+    <span class="profileTagLine">
+      3d graphics, emulation, zooming user interfaces, boiling the ocean
+    </span>
+    <br>
+    <span class="profileLocation">
+      Seattle, WA
+    </span>
+  </div>-->
 
 <!--
 profile pic

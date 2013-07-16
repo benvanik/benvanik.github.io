@@ -12,6 +12,39 @@ body > .stretch-container {
   min-height: 100%;
 }
 
+.clear {
+  clear: both;
+}
+
+/* ---- posts ---- */
+
+#disqus_thread {
+  margin-top: 3em;
+}
+
+.post-header {
+  padding-bottom: 25px;
+}
+.post-header > h1 {
+  margin: 0;
+  border-bottom: 1px solid #eeeeee;
+}
+.post-header > h1 > small {
+  float: right;
+  line-height: 52px;
+}
+.post-header-info {
+}
+.post-header-info-left {
+  float: left;
+}
+.post-header-info-right {
+  float: right;
+}
+.post-header-tail {
+  clear: both;
+}
+
 
 /* ---- emoji ---- */
 
@@ -130,5 +163,46 @@ body > .stretch-container {
   .footer {
     padding-top: 2em;
     padding-bottom: 2em;
+  }
+}
+
+/* ---- home page ---- */
+
+.history-place {
+  position: relative;
+  margin-bottom: 10px;
+}
+.history-logo {
+  position: relative;
+  width: 166px;
+}
+.history-logo > span {
+  position: absolute;
+  top: -6px;
+  right: 10px;
+  opacity: 0.6;
+  pointer-events: none;
+}
+.history-place > a {
+  font-weight: bold;
+}
+.history-team {
+  margin-left: 12px;
+}
+.history-team > a > img {
+  border: 0;
+  width: 16px;
+  height: 16px;
+  margin-right: 5px;
+}
+.history-divider {
+  position: absolute;
+  right: 15px;
+  top: 32px;
+  font-size: 36px;
+}
+@media (min-width: 1200px) {
+  .history-divider {
+    right: 30px;
   }
 }
