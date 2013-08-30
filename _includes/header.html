@@ -39,7 +39,11 @@
 -->
 <html lang="en">
   <head>
-    <title>{{ page.title }} - Ben Vanik / noxa.org</title>
+    <title>
+      {% if page.title != 'home' %}
+        {{ page.title }} -&nbsp;
+      {% endif %} Ben Vanik / noxa.org
+    </title>
     <meta name="description" content="The personal website of Ben Vanik">
     <meta name="author" content="Ben Vanik (noxa)">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -66,25 +70,18 @@
     <div class="navbar navbar-inverse navbar-fixed-top">
       <div class="navbar-inner">
         <div class="container">
-          <button type="button" class="btn btn-navbar" data-toggle="collapse" data-target=".nav-collapse">
-            <span class="icon-bar"></span>
-            <span class="icon-bar"></span>
-            <span class="icon-bar"></span>
-          </button>
           <a class="brand" href="/"><img src="/assets/images/noxa-logo.png" width="28" height="28"/>&nbsp;noxa.org&nbsp;</a>
-          <div class="nav-collapse collapse">
-            <ul class="nav">
-              <li class="{% if page.title == 'home' %}active{% endif %}">
-                <a href="/">home</a>
-              </li>
-              <li class="{% if page.title == 'posts' %}active{% endif %}">
-                <a href="/posts/">posts</a>
-              </li>
-              <li class="{% if page.title == 'projects' %}active{% endif %}">
-                <a href="/projects/">projects</a>
-              </li>
-            </ul>
-          </div>
+          <ul class="nav">
+            <li class="{% if page.title == 'home' %}active{% endif %}">
+              <a href="/">home</a>
+            </li>
+            <li class="{% if page.title == 'posts' %}active{% endif %}">
+              <a href="/posts/">posts</a>
+            </li>
+            <li class="{% if page.title == 'projects' %}active{% endif %}">
+              <a href="/projects/">projects</a>
+            </li>
+          </ul>
         </div>
       </div>
     </div>
